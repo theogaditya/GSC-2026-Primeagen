@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Script from "next/script"
 import { Eye, EyeOff, ShieldCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -38,6 +39,11 @@ export function LoginForm({ adminType: controlledAdminType, onAdminTypeChange }:
   const [error, setError] = React.useState("")
   const [isLoading, setIsLoading] = React.useState(false)
   const [showPassword, setShowPassword] = React.useState(false)
+  const [cfToken, setCfToken] = React.useState<string | null>(null)
+  const turnstileRef = React.useRef<HTMLDivElement | null>(null)
+  const widgetIdRef = React.useRef<number | null>(null)
+
+  const isFirstRender = React.useRef(true)
 
   React.useEffect(() => {
     if (controlledAdminType && controlledAdminType !== adminType) {
@@ -46,12 +52,88 @@ export function LoginForm({ adminType: controlledAdminType, onAdminTypeChange }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [controlledAdminType])
 
+  React.useEffect(() => {
+    // global callback for Turnstile (used by rendered widget)
+    ;(window as any).onTurnstileSuccess = (token: string) => {
+      setCfToken(token)
+    }
+
+    // If Turnstile script already loaded (navigated back), render the widget into the container
+    try {
+      const t = (window as any).turnstile
+      if (t && turnstileRef.current && widgetIdRef.current === null) {
+        // render returns a widget id
+        widgetIdRef.current = t.render(turnstileRef.current, {
+          sitekey: process.env.NEXT_PUBLIC_TURNSTILE_SITEKEY || "0x4AAAAAAC6QmeBE4MEqq_x7",
+          callback: "onTurnstileSuccess",
+          theme: "light",
+        })
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [])
+
+  // Reset Turnstile when `adminType` or `showPassword` changes (after initial mount)
+  React.useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      return
+    }
+
+    try {
+      const t = (window as any).turnstile
+      if (t) {
+        if (widgetIdRef.current != null && typeof t.reset === "function") {
+          try {
+            t.reset(widgetIdRef.current)
+          } catch (e) {
+            try {
+              t.reset()
+            } catch (_) {
+              // ignore
+            }
+          }
+        } else if (typeof t.reset === "function") {
+          try {
+            t.reset()
+          } catch (_) {
+            // ignore
+          }
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    setCfToken(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminType, showPassword])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
     setIsLoading(true)
 
     try {
+      // require Cloudflare Turnstile token
+      if (!cfToken) {
+        setError("Please complete the verification widget before submitting")
+        setIsLoading(false)
+        return
+      }
+
+      // verify Turnstile token with our server endpoint
+      const verifyResp = await fetch("/api/turnstile/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: cfToken }),
+      })
+      const verifyData = await verifyResp.json()
+      if (!verifyResp.ok || !verifyData.success) {
+        throw new Error(verifyData.message || "Turnstile verification failed")
+      }
+
       // Civic Partner uses a separate auth endpoint
       const isCivicPartner = adminType === "CIVIC_PARTNER"
       const loginUrl = isCivicPartner
@@ -92,7 +174,35 @@ export function LoginForm({ adminType: controlledAdminType, onAdminTypeChange }:
         throw new Error(data.message || "Login failed")
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to connect to server")
+        setError(err instanceof Error ? err.message : "Failed to connect to server")
+        // Reset Turnstile widget and clear token so user can retry without refreshing
+        try {
+          const t = (window as any).turnstile
+          // prefer resetting the specific widget if we have its id
+          if (t) {
+            if (widgetIdRef.current != null && typeof t.reset === "function") {
+              try {
+                t.reset(widgetIdRef.current)
+              } catch (e) {
+                // fallback to global reset
+                try {
+                  t.reset()
+                } catch (_) {
+                  // ignore
+                }
+              }
+            } else if (typeof t.reset === "function") {
+              try {
+                t.reset()
+              } catch (_) {
+                // ignore
+              }
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+        setCfToken(null)
     } finally {
       setIsLoading(false)
     }
@@ -136,6 +246,7 @@ export function LoginForm({ adminType: controlledAdminType, onAdminTypeChange }:
         </CardHeader>
 
         <CardContent className="px-4 sm:px-6 pb-6 sm:pb-8">
+          <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="lazyOnload" />
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-lg text-sm flex items-center gap-2">
@@ -221,10 +332,20 @@ export function LoginForm({ adminType: controlledAdminType, onAdminTypeChange }:
               </div>
             </div>
 
+            <div className="mt-2 flex justify-center">
+              <div
+                ref={turnstileRef}
+                className="cf-turnstile"
+                data-sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITEKEY || "0x4AAAAAAC6QmeBE4MEqq_x7"}
+                data-callback="onTurnstileSuccess"
+                data-theme="light"
+              />
+            </div>
+
             <Button
               type="submit"
               className="w-full h-10 sm:h-12 bg-linear-to-r from-blue-800 to-blue-700 hover:from-blue-900 hover:to-blue-800 text-white font-semibold text-sm sm:text-base rounded-xl shadow-lg transition-all duration-200"
-              disabled={isLoading}
+              disabled={isLoading || !cfToken}
             >
               {isLoading ? (
                 <span className="flex items-center gap-2">

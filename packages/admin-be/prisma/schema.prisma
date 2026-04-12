@@ -101,6 +101,7 @@ model DepartmentMunicipalAdmin {
   managedByStateAdmin       DepartmentStateAdmin? @relation("StateAdminToMunicipalAdmin", fields: [managedByStateAdminId], references: [id])
   managedBySuperMunicipal   SuperMunicipalAdmin?  @relation("SuperMunicipalToDepAdmin", fields: [managedBySuperMunicipalId], references: [id])
   newsUpdates               NewsUpdate[]
+  announcements             Announcement[]
 
   @@map("department_municipal_admins")
 }
@@ -236,18 +237,28 @@ model Complaint {
   managedBySuperAdminId          String?
   moderatedByMunicipalAdminId    String?
   seq                            Int                       @unique @default(autoincrement())
+
+  // Blockchain sync fields
   blockchainHash                 String?                   @db.VarChar(66)
   blockchainBlock                BigInt?
   ipfsHash                       String?
   isOnChain                      Boolean                   @default(false)
   blockchainStatus               BlockchainStatus          @default(PENDING)
   blockchainUpdatedAt            DateTime?
+
   sla                            String?
+  slaDeadline                    DateTime?
+  slaBreached                    Boolean                   @default(false)
   AIabusedFlag                   Boolean?
   AIimageVarificationStatus      Boolean?
   AIstandardizedSubCategory      String?
   lastUpdated                    DateTime                  @updatedAt
   isDuplicate                    Boolean?
+  qualityScore                   Int?                      @default(0)
+  qualityBreakdown               Json?
+  hasSimilarComplaints           Boolean?                  @default(false)
+  similarComplaintIds            String[]                  @default([])
+  abuseMetadata                  Json?
   assignedAgent                  Agent?                    @relation("AssignedAgentComplaints", fields: [assignedAgentId], references: [id])
   category                       Category                  @relation(fields: [categoryId], references: [id])
   User                           User?                     @relation(fields: [complainantId], references: [id])
@@ -264,24 +275,6 @@ model Complaint {
   coAssignedAgents               Agent[]                   @relation("CoAssignedAgentComplaints")
 
   @@index([blockchainHash])
-}
-
-model BlockchainSyncEvent {
-  id              String          @id @default(uuid())
-  entityType      String
-  entityId        String
-  keyPrefix       String
-  blockchainHash  String          @db.VarChar(66)
-  blockchainBlock BigInt?
-  ipfsHash        String?
-  isOnChain       Boolean         @default(true)
-  payload         Json
-  status          SyncEventStatus @default(PROCESSED)
-  processedAt     DateTime        @default(now())
-
-  @@unique([keyPrefix, blockchainHash])
-  @@index([entityType, entityId])
-  @@map("blockchain_sync_events")
 }
 
 model ComplaintLocation {
@@ -320,6 +313,23 @@ model NewsUpdate {
   createdBy   DepartmentMunicipalAdmin @relation(fields: [createdById], references: [id])
 
   @@map("news_updates")
+}
+
+model Announcement {
+  id           String                   @id @default(uuid())
+  title        String
+  content      String
+  municipality String
+  isActive     Boolean                  @default(true)
+  priority     Int                      @default(0)
+  startsAt     DateTime                 @default(now())
+  expiresAt    DateTime?
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  createdById  String
+  createdBy    DepartmentMunicipalAdmin @relation(fields: [createdById], references: [id])
+
+  @@map("announcements")
 }
 
 model AuditLog {
@@ -511,6 +521,24 @@ enum SyncEventStatus {
   FAILED
 }
 
+model BlockchainSyncEvent {
+  id              String          @id @default(uuid())
+  entityType      String
+  entityId        String
+  keyPrefix       String
+  blockchainHash  String          @db.VarChar(66)
+  blockchainBlock BigInt?
+  ipfsHash        String?
+  isOnChain       Boolean         @default(true)
+  payload         Json
+  status          SyncEventStatus @default(PROCESSED)
+  processedAt     DateTime        @default(now())
+
+  @@unique([keyPrefix, blockchainHash])
+  @@index([entityType, entityId])
+  @@map("blockchain_sync_events")
+}
+
 // ─── CivicPartner Feature ────────────────────────────────────────────────────
 
 enum CivicPartnerType {
@@ -588,14 +616,14 @@ model Survey {
 }
 
 model SurveyQuestion {
-  id           String        @id @default(uuid())
+  id           String         @id @default(uuid())
   surveyId     String
   questionText String
   questionType QuestionType
   options      String[]
-  isRequired   Boolean       @default(true)
+  isRequired   Boolean        @default(true)
   order        Int
-  survey       Survey        @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  survey       Survey         @relation(fields: [surveyId], references: [id], onDelete: Cascade)
   answers      SurveyAnswer[]
 
   @@map("survey_questions")

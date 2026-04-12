@@ -1,12 +1,29 @@
 "use client"
 
-import { useState, useEffect, use, useCallback } from "react"
+import { useState, useEffect, use, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { CivicPartnerLayout } from "../../_layout"
+import { motion, AnimatePresence } from "framer-motion"
+import { cn } from "@/lib/utils"
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3002"
+const GOOGLE_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY || ""
 
 type QuestionType = "TEXT" | "MCQ" | "CHECKBOX" | "RATING" | "YES_NO"
+
+const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
+  TEXT: "Open Text",
+  MCQ: "Multiple Choice",
+  CHECKBOX: "Checkbox",
+  RATING: "Rating (1–5)",
+  YES_NO: "Yes / No",
+}
+
+const CATEGORIES = [
+  "Public Infrastructure", "Healthcare Services", "Environmental Policy",
+  "Education & Youth", "Transportation", "Housing & Urban Planning",
+  "Public Safety", "Governance & Civic Engagement", "Other",
+]
 
 interface Question {
   id?: string
@@ -24,6 +41,7 @@ interface Survey {
   category: string
   content: string
   status: "DRAFT" | "PUBLISHED" | "CLOSED" | "ARCHIVED"
+  isPublic: boolean
   startsAt: string | null
   endsAt: string | null
   createdAt: string
@@ -32,206 +50,105 @@ interface Survey {
   _count?: { responses: number; questions: number }
 }
 
-interface Overview {
-  totalResponses: number
-  completeResponses: number
-  uniqueRespondents: number
-  completionRate: number
-  dropOffRate: number
-  avgTimeToCompleteSeconds: number | null
-  last24h: number
-  last7d: number
-  last30d: number
+type Tab = "overview" | "questions" | "analytics"
+
+interface Toast {
+  id: number
+  type: "success" | "error"
+  message: string
 }
 
-interface QuestionSummary {
-  questionId: string
-  questionText: string
-  questionType: string
-  order: number
-  totalAnswers: number
-  responseRate: number
+const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string; icon: string; dot: string }> = {
+  PUBLISHED: { bg: "bg-emerald-50", text: "text-emerald-600", label: "Live",     icon: "rss_feed",  dot: "bg-emerald-500" },
+  DRAFT:     { bg: "bg-amber-50",   text: "text-amber-600",   label: "Draft",    icon: "edit_note", dot: "bg-amber-400"   },
+  CLOSED:    { bg: "bg-gray-100",   text: "text-gray-500",    label: "Closed",   icon: "lock",      dot: "bg-gray-400"    },
+  ARCHIVED:  { bg: "bg-red-50",     text: "text-red-400",     label: "Archived", icon: "archive",   dot: "bg-red-300"     },
 }
-
-interface QuestionBreakdown {
-  id: string
-  questionText: string
-  questionType: string
-  totalAnswers: number
-  breakdown: any
-}
-
-const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
-  TEXT: "Open Text",
-  MCQ: "Multiple Choice",
-  CHECKBOX: "Checkbox",
-  RATING: "Rating (1-5)",
-  YES_NO: "Yes / No",
-}
-
-const CATEGORIES = [
-  "Public Infrastructure",
-  "Healthcare Services",
-  "Environmental Policy",
-  "Education & Youth",
-  "Transportation",
-  "Housing & Urban Planning",
-  "Public Safety",
-  "Governance & Civic Engagement",
-  "Other",
-]
-
-type Tab = "overview" | "questions" | "analytics" | "settings"
 
 export default function SurveyDetailPage({ params }: { params: Promise<{ surveyId: string }> }) {
   const { surveyId } = use(params)
   const router = useRouter()
+  const mapRef = useRef<HTMLDivElement>(null)
+  const toastIdRef = useRef(0)
 
-  const [survey, setSurvey] = useState<Survey | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState("")
-  const [successMsg, setSuccessMsg] = useState("")
-  const [activeTab, setActiveTab] = useState<Tab>("overview")
+  const [survey, setSurvey]         = useState<Survey | null>(null)
+  const [loading, setLoading]       = useState(true)
+  const [saving, setSaving]         = useState(false)
+  const [transitioning, setTransitioning] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [confirmType, setConfirmType] = useState<"close" | "reopen" | "archive" | "delete" | null>(null)
+  const [confirmInput, setConfirmInput] = useState("")
+  const confirmCbRef = useRef<(() => void) | null>(null)
+  const [activeTab, setActiveTab]   = useState<Tab>("overview")
+  const [toasts, setToasts]         = useState<Toast[]>([])
 
   // Editable fields
-  const [title, setTitle] = useState("")
+  const [title, setTitle]             = useState("")
   const [description, setDescription] = useState("")
-  const [category, setCategory] = useState("")
-  const [content, setContent] = useState("")
-  const [questions, setQuestions] = useState<Question[]>([])
-  const [startsAt, setStartsAt] = useState("")
-  const [endsAt, setEndsAt] = useState("")
+  const [category, setCategory]       = useState("")
+  const [content, setContent]         = useState("")
+  const [startsAt, setStartsAt]       = useState("")
+  const [endsAt, setEndsAt]           = useState("")
+  const [questions, setQuestions]     = useState<Question[]>([])
+  const [isDirty, setIsDirty]         = useState(false)
 
-  // Analytics
-  const [overview, setOverview] = useState<Overview | null>(null)
-  const [questionSummaries, setQuestionSummaries] = useState<QuestionSummary[]>([])
-  const [questionDetails, setQuestionDetails] = useState<Record<string, QuestionBreakdown>>({})
+  // ── Toast helpers ──────────────────────────────────────────────────────
+  const showToast = useCallback((type: "success" | "error", message: string) => {
+    const id = ++toastIdRef.current
+    setToasts((prev) => [...prev, { id, type, message }])
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3500)
+  }, [])
 
-  // Modals
-  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false)
-  const [showStopConfirm, setShowStopConfirm] = useState(false)
-  const [editingQuestionIdx, setEditingQuestionIdx] = useState<number | null>(null)
-  const [showAddQuestion, setShowAddQuestion] = useState(false)
-
+  // ── Load survey ────────────────────────────────────────────────────────
   const loadSurvey = useCallback(async () => {
     try {
       const res = await fetch(`${API}/api/civic-partner/surveys/${surveyId}`, { credentials: "include" })
       if (res.ok) {
         const data = await res.json()
-        const sv = data.survey as Survey
+        const sv: Survey = data.survey
         setSurvey(sv)
         setTitle(sv.title)
         setDescription(sv.description)
         setCategory(sv.category)
         setContent(sv.content)
-        setQuestions(sv.questions || [])
+        setQuestions(sv.questions)
         if (sv.startsAt) setStartsAt(sv.startsAt.slice(0, 16))
-        if (sv.endsAt) setEndsAt(sv.endsAt.slice(0, 16))
+        if (sv.endsAt)   setEndsAt(sv.endsAt.slice(0, 16))
+        setIsDirty(false)
       }
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoading(false)
-    }
+    } catch (err) { console.error(err) } finally { setLoading(false) }
   }, [surveyId])
 
-  const loadAnalytics = useCallback(async () => {
-    if (!survey || survey.status === "DRAFT") return
-    try {
-      const [ovRes, qsRes] = await Promise.all([
-        fetch(`${API}/api/civic-partner/analytics/${surveyId}/overview`, { credentials: "include" }),
-        fetch(`${API}/api/civic-partner/analytics/${surveyId}/questions-summary`, { credentials: "include" }),
-      ])
-      if (ovRes.ok) {
-        const d = await ovRes.json()
-        setOverview(d.overview)
-      }
-      if (qsRes.ok) {
-        const d = await qsRes.json()
-        setQuestionSummaries(d.questions ?? [])
-      }
-    } catch (err) {
-      console.error(err)
-    }
-  }, [surveyId, survey?.status])
-
   useEffect(() => { loadSurvey() }, [loadSurvey])
-  useEffect(() => { loadAnalytics() }, [loadAnalytics])
 
-  // Load per-question breakdowns for analytics
+  // ── Google Maps heatmap ────────────────────────────────────────────────
   useEffect(() => {
-    if (questionSummaries.length === 0) return
-    const load = async () => {
-      const details: Record<string, QuestionBreakdown> = {}
-      await Promise.all(
-        questionSummaries.map(async (q) => {
-          try {
-            const res = await fetch(
-              `${API}/api/civic-partner/analytics/${surveyId}/question/${q.questionId}`,
-              { credentials: "include" }
-            )
-            if (res.ok) {
-              const d = await res.json()
-              details[q.questionId] = d.question
-            }
-          } catch {}
-        })
-      )
-      setQuestionDetails(details)
+    if (activeTab !== "analytics" || !mapRef.current) return
+    const script = document.createElement("script")
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_API_KEY}&libraries=visualization`
+    script.async = true; script.defer = true
+    script.onload = () => {
+      if (!mapRef.current) return
+      const map = new google.maps.Map(mapRef.current, {
+        center: { lat: 19.076, lng: 72.8777 }, zoom: 12,
+        styles: [
+          { featureType: "all",   elementType: "labels.text.fill", stylers: [{ color: "#7c93a3" }] },
+          { featureType: "water", elementType: "all",               stylers: [{ color: "#465FFF" }, { opacity: 0.1 }] },
+        ],
+      })
+      const pts = [
+        new google.maps.LatLng(19.076, 72.878), new google.maps.LatLng(19.08, 72.88),
+        new google.maps.LatLng(19.1,   72.85),  new google.maps.LatLng(19.05, 72.9),
+      ]
+      new google.maps.visualization.HeatmapLayer({ data: pts, map, radius: 40 })
     }
-    load()
-  }, [questionSummaries, surveyId])
+    document.head.appendChild(script)
+    return () => { try { document.head.removeChild(script) } catch {} }
+  }, [activeTab])
 
-  const showSuccess = (msg: string) => {
-    setSuccessMsg(msg)
-    setTimeout(() => setSuccessMsg(""), 3000)
-  }
-
-  // ------- Question helpers -------
-  const addQuestion = () => {
-    setQuestions((q) => [
-      ...q,
-      { questionText: "", questionType: "MCQ", options: [""], isRequired: true, order: q.length + 1 },
-    ])
-    setEditingQuestionIdx(questions.length)
-    setShowAddQuestion(true)
-  }
-
-  const updateQuestion = (idx: number, patch: Partial<Question>) => {
-    setQuestions((prev) => prev.map((q, i) => (i === idx ? { ...q, ...patch } : q)))
-  }
-
-  const removeQuestion = (idx: number) => {
-    setQuestions((prev) => prev.filter((_, i) => i !== idx).map((q, i) => ({ ...q, order: i + 1 })))
-    setEditingQuestionIdx(null)
-  }
-
-  const addOption = (qIdx: number) => {
-    setQuestions((prev) =>
-      prev.map((q, i) => (i === qIdx ? { ...q, options: [...q.options, ""] } : q))
-    )
-  }
-
-  const updateOption = (qIdx: number, oIdx: number, value: string) => {
-    setQuestions((prev) =>
-      prev.map((q, i) =>
-        i === qIdx ? { ...q, options: q.options.map((o, j) => (j === oIdx ? value : o)) } : q
-      )
-    )
-  }
-
-  const removeOption = (qIdx: number, oIdx: number) => {
-    setQuestions((prev) =>
-      prev.map((q, i) =>
-        i === qIdx ? { ...q, options: q.options.filter((_, j) => j !== oIdx) } : q
-      )
-    )
-  }
-
-  // ------- Actions -------
-  const handleSave = async () => {
-    setError("")
+  // ── Save Draft ─────────────────────────────────────────────────────────
+  const handleSaveDraft = async () => {
+    if (!survey) return
     setSaving(true)
     try {
       const res = await fetch(`${API}/api/civic-partner/surveys/${surveyId}`, {
@@ -239,967 +156,595 @@ export default function SurveyDetailPage({ params }: { params: Promise<{ surveyI
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          title,
-          description,
-          category,
+          title, description, category,
           content: content || description,
           questions: questions.map((q) => ({
             questionText: q.questionText,
             questionType: q.questionType,
-            options: ["MCQ", "CHECKBOX"].includes(q.questionType) ? q.options.filter(Boolean) : [],
+            options: ["MCQ", "CHECKBOX"].includes(q.questionType) ? q.options.map(o => o.trim()).filter(Boolean) : [],
             isRequired: q.isRequired,
             order: q.order,
           })),
           startsAt: startsAt || undefined,
-          endsAt: endsAt || undefined,
+          endsAt:   endsAt   || undefined,
         }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.message || "Failed to save changes")
-      showSuccess("Changes saved successfully!")
-      await loadSurvey()
+      if (!res.ok) throw new Error(data.message || "Failed to save")
+      showToast("success", "Draft saved successfully.")
+      setIsDirty(false)
+      setSurvey((prev) => prev ? { ...prev, title, description, category } : prev)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong")
-    } finally {
-      setSaving(false)
-    }
+      showToast("error", err instanceof Error ? err.message : "Failed to save draft")
+    } finally { setSaving(false) }
   }
 
-  const handlePublish = async () => {
-    setError("")
-    setSaving(true)
+  // ── Status transitions ─────────────────────────────────────────────────
+  const callStatusEndpoint = async (endpoint: string, successMsg: string) => {
+    setTransitioning(true)
     try {
-      await handleSave()
-      const res = await fetch(`${API}/api/civic-partner/surveys/${surveyId}/publish`, {
-        method: "POST",
-        credentials: "include",
+      const res = await fetch(`${API}/api/civic-partner/surveys/${surveyId}/${endpoint}`, {
+        method: "POST", credentials: "include",
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.message || "Failed to publish")
-      showSuccess("Survey published successfully!")
+      if (!res.ok) throw new Error(data.message || "Action failed")
+      showToast("success", successMsg)
       await loadSurvey()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong")
-    } finally {
-      setSaving(false)
+      showToast("error", err instanceof Error ? err.message : "Action failed")
+    } finally { setTransitioning(false) }
+  }
+
+  const openConfirm = (type: "close" | "reopen" | "archive" | "delete", cb: () => void) => {
+    setConfirmType(type)
+    confirmCbRef.current = cb
+    setConfirmInput("")
+    setShowConfirm(true)
+  }
+
+  const runConfirm = async () => {
+    if (!confirmType) return
+    if (confirmType === 'close') {
+      if (confirmInput.trim() !== 'CLOSE') return
     }
+    setShowConfirm(false)
+    const cb = confirmCbRef.current
+    confirmCbRef.current = null
+    if (cb) cb()
   }
 
-  const handleStop = async () => {
-    setError("")
-    setSaving(true)
-    try {
-      const res = await fetch(`${API}/api/civic-partner/surveys/${surveyId}/close`, {
-        method: "POST",
-        credentials: "include",
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.message || "Failed to stop survey")
-      showSuccess("Survey has been stopped and closed.")
-      setShowStopConfirm(false)
-      await loadSurvey()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong")
-    } finally {
-      setSaving(false)
-    }
+  // ── Question helpers ───────────────────────────────────────────────────
+  const addQuestion = () => {
+    setQuestions((q) => [...q, { questionText: "", questionType: "MCQ", options: [""], isRequired: true, order: q.length + 1 }])
+    setIsDirty(true)
+  }
+  const updateQuestion = (idx: number, patch: Partial<Question>) => {
+    setQuestions((prev) => prev.map((q, i) => i === idx ? { ...q, ...patch } : q))
+    setIsDirty(true)
+  }
+  const removeQuestion = (idx: number) => {
+    setQuestions((prev) => prev.filter((_, i) => i !== idx).map((q, i) => ({ ...q, order: i + 1 })))
+    setIsDirty(true)
+  }
+  const addOption = (qIdx: number) => {
+    setQuestions((prev) => prev.map((q, i) => i === qIdx ? { ...q, options: [...q.options, ""] } : q))
+    setIsDirty(true)
+  }
+  const updateOption = (qIdx: number, oIdx: number, value: string) => {
+    setQuestions((prev) => prev.map((q, i) => i === qIdx ? { ...q, options: q.options.map((o, j) => j === oIdx ? value : o) } : q))
+    setIsDirty(true)
+  }
+  const removeOption = (qIdx: number, oIdx: number) => {
+    setQuestions((prev) => prev.map((q, i) => i === qIdx ? { ...q, options: q.options.filter((_, j) => j !== oIdx) } : q))
+    setIsDirty(true)
   }
 
-  const handleRestart = async () => {
-    setError("")
-    setSaving(true)
-    try {
-      const res = await fetch(`${API}/api/civic-partner/surveys/${surveyId}/reopen`, {
-        method: "POST",
-        credentials: "include",
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.message || "Failed to restart survey")
-      showSuccess("Survey has been restarted and is active.")
-      await loadSurvey()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong")
-    } finally {
-      setSaving(false)
-    }
-  }
+  // ── Loading / not-found ────────────────────────────────────────────────
+  if (loading) return (
+    <CivicPartnerLayout>
+      <div className="max-w-7xl mx-auto p-8 animate-pulse space-y-4">
+        <div className="h-6 w-40 bg-gray-100 rounded" />
+        <div className="h-10 w-96 bg-gray-100 rounded" />
+        <div className="h-32 bg-white rounded-2xl border border-gray-100" />
+      </div>
+    </CivicPartnerLayout>
+  )
 
-  const handleArchive = async () => {
-    setError("")
-    setSaving(true)
-    try {
-      const res = await fetch(`${API}/api/civic-partner/surveys/${surveyId}`, {
-        method: "DELETE",
-        credentials: "include",
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.message || "Failed to archive survey")
-      showSuccess("Survey has been archived.")
-      setShowArchiveConfirm(false)
-      await loadSurvey()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong")
-    } finally {
-      setSaving(false)
-    }
-  }
+  if (!survey) return (
+    <CivicPartnerLayout>
+      <div className="p-20 text-center">
+        <p className="text-gray-400 font-medium">Survey not found or access denied.</p>
+        <button onClick={() => router.push("/CivicPartner/surveys")} className="mt-4 text-[#465FFF] text-sm font-bold hover:underline">← Back to Campaigns</button>
+      </div>
+    </CivicPartnerLayout>
+  )
 
-  const handleExport = (format: "csv" | "json") => {
-    window.open(`${API}/api/civic-partner/analytics/${surveyId}/export?format=${format}`, "_blank")
-  }
-
-  const formatTime = (seconds: number | null) => {
-    if (seconds == null) return "N/A"
-    const m = Math.floor(seconds / 60)
-    const s = seconds % 60
-    return `${m}m ${s}s`
-  }
-
-  const statusConfig: Record<string, { bg: string; text: string; label: string; icon: string }> = {
-    PUBLISHED: { bg: "bg-emerald-100", text: "text-emerald-700", label: "Active", icon: "radio_button_checked" },
-    DRAFT: { bg: "bg-amber-100", text: "text-amber-700", label: "Draft", icon: "edit_note" },
-    CLOSED: { bg: "bg-slate-200", text: "text-slate-600", label: "Closed", icon: "block" },
-    ARCHIVED: { bg: "bg-slate-100", text: "text-slate-500", label: "Archived", icon: "inventory_2" },
-  }
-
-  // Loading skeleton
-  if (loading) {
-    return (
-      <CivicPartnerLayout>
-        <div className="p-8 space-y-6">
-          <div className="flex items-center gap-4">
-            <div className="h-8 w-8 bg-[#e6f6ff] rounded-lg animate-pulse" />
-            <div className="h-6 w-48 bg-[#e6f6ff] rounded-lg animate-pulse" />
-          </div>
-          <div className="h-10 w-96 bg-[#e6f6ff] rounded-xl animate-pulse" />
-          <div className="grid grid-cols-4 gap-6">
-            {[1, 2, 3, 4].map(i => <div key={i} className="h-28 bg-white rounded-xl animate-pulse" style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.04)" }} />)}
-          </div>
-          <div className="h-96 bg-white rounded-xl animate-pulse" style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.04)" }} />
-        </div>
-      </CivicPartnerLayout>
-    )
-  }
-
-  if (!survey) {
-    return (
-      <CivicPartnerLayout>
-        <div className="p-8 text-center py-40">
-          <span className="material-symbols-outlined text-6xl text-[#c1c7d0] mb-4 block">search_off</span>
-          <p className="text-[#727780] text-lg font-medium">Survey not found or access denied.</p>
-          <button onClick={() => router.push("/CivicPartner/surveys")} className="mt-4 text-[#003358] font-bold underline">
-            Back to Surveys
-          </button>
-        </div>
-      </CivicPartnerLayout>
-    )
-  }
-
-  const isDraft = survey.status === "DRAFT"
-  const isActive = survey.status === "PUBLISHED"
-  const isClosed = survey.status === "CLOSED"
-  const isArchived = survey.status === "ARCHIVED"
-  const sc = statusConfig[survey.status] || statusConfig.DRAFT
-  const canEdit = isDraft || isActive
-
-  const TABS: { key: Tab; label: string; icon: string }[] = [
-    { key: "overview", label: "Overview", icon: "info" },
-    { key: "questions", label: "Questions", icon: "quiz" },
-    ...(isDraft ? [] : [{ key: "analytics" as Tab, label: "Analytics", icon: "insert_chart" }]),
-    { key: "settings", label: "Survey Settings", icon: "tune" },
-  ]
+  const sc         = STATUS_CONFIG[survey.status] ?? STATUS_CONFIG.DRAFT
+  const isDraft    = survey.status === "DRAFT"
+  const isPublished = survey.status === "PUBLISHED"
+  const isClosed   = survey.status === "CLOSED"
+  const isEditable = isDraft || isPublished
 
   return (
     <CivicPartnerLayout>
-      <div className="p-8 max-w-7xl mx-auto space-y-8">
-        {/* ── Success Toast ── */}
-        {successMsg && (
-          <div className="fixed top-6 right-6 z-50 bg-emerald-600 text-white px-6 py-3 rounded-xl font-medium text-sm shadow-2xl flex items-center gap-2 animate-in slide-in-from-top">
-            <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
-            {successMsg}
-          </div>
-        )}
-
-        {/* ── Header ── */}
-        <section className="flex flex-col md:flex-row md:items-start justify-between gap-6">
-          <div className="flex-1">
-            <button
-              onClick={() => router.push("/CivicPartner/surveys")}
-              className="flex items-center gap-1 text-[#727780] hover:text-[#003358] text-sm font-medium mb-3 transition-colors"
+      {/* ── Toast stack ───────────────────────────────────────────────── */}
+      <div className="fixed top-6 right-6 z-50 space-y-2 pointer-events-none">
+        <AnimatePresence>
+          {toasts.map((t) => (
+            <motion.div
+              key={t.id}
+              initial={{ opacity: 0, y: -12, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0,   scale: 1    }}
+              exit={{    opacity: 0, y: -8,   scale: 0.95 }}
+              className={cn(
+                "px-5 py-3.5 rounded-xl shadow-xl text-sm font-bold flex items-center gap-2",
+                t.type === "success" ? "bg-white border border-emerald-200 text-emerald-700" : "bg-white border border-red-200 text-red-600"
+              )}
             >
-              <span className="material-symbols-outlined text-sm">arrow_back</span>
-              Back to Surveys
+              <span className="material-symbols-outlined text-sm">
+                {t.type === "success" ? "check_circle" : "error"}
+              </span>
+              {t.message}
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
+      <div className="max-w-7xl mx-auto pb-20">
+        {/* ── Page header ───────────────────────────────────────────── */}
+        <div className="flex flex-col lg:flex-row justify-between items-start gap-6 mb-8">
+          <div className="flex-1 min-w-0">
+            <button onClick={() => router.push("/CivicPartner/surveys")} className="flex items-center gap-1 text-gray-400 hover:text-[#465FFF] text-xs font-bold mb-4 transition-colors">
+              <span className="material-symbols-outlined text-sm">arrow_back</span> Back to Campaigns
             </button>
             <div className="flex items-center gap-3 mb-2">
-              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${sc.bg} ${sc.text}`}>
-                <span className="material-symbols-outlined text-xs">{sc.icon}</span>
+              <div className={cn("px-3 py-1 rounded-full text-[10px] font-black uppercase flex items-center gap-1.5", sc.bg, sc.text)}>
+                <span className={cn("w-1.5 h-1.5 rounded-full", sc.dot)} />
                 {sc.label}
-              </span>
-              <span className="text-xs text-[#727780]">
-                Created {new Date(survey.createdAt).toLocaleDateString()}
-              </span>
+              </div>
+              <span className="text-[10px] font-bold text-gray-300 uppercase tracking-widest">ID: {surveyId.slice(0, 8)}</span>
+              {isDirty && isDraft && (
+                <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest bg-amber-50 px-2 py-0.5 rounded-md">Unsaved changes</span>
+              )}
             </div>
-            <h2
-              className="text-3xl font-extrabold text-[#003358] tracking-tight"
-              style={{ fontFamily: "'Manrope', sans-serif" }}
-            >
-              {survey.title}
-            </h2>
-            <p className="text-[#42474f] mt-1 max-w-2xl">{survey.description}</p>
+            <h1 className="text-4xl font-black text-black tracking-tight truncate">{survey.title}</h1>
           </div>
 
-          {/* Action buttons */}
-          <div className="flex flex-wrap gap-3">
-            {isDraft && (
+          {/* ── Action buttons ──────────────────────────────────────── */}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            {isEditable && (
               <>
                 <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-[#e6f6ff] text-[#003358] font-bold rounded-xl hover:bg-[#dbf1fe] transition-all disabled:opacity-50"
+                  onClick={handleSaveDraft}
+                  disabled={saving || !isDirty}
+                  className="h-11 px-6 bg-white border border-gray-200 rounded-xl text-xs font-black text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  <span className="material-symbols-outlined text-sm">save</span>
-                  Save Draft
+                  {saving ? "Saving…" : (isDraft ? "Save Draft" : "Save Changes")}
                 </button>
+                {isDraft && (
+                  <button
+                    onClick={() => callStatusEndpoint("publish", "Survey published and now live!")}
+                    disabled={transitioning || questions.length === 0}
+                    title={questions.length === 0 ? "Add at least one question before publishing" : undefined}
+                    className="h-11 px-8 bg-[#465FFF] text-white rounded-xl text-xs font-black shadow-lg shadow-[#465FFF]/20 hover:bg-[#3451D1] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 uppercase tracking-tighter"
+                  >
+                    <span className="material-symbols-outlined text-sm">publish</span>
+                    {transitioning ? "Publishing…" : "Publish Survey"}
+                  </button>
+                )}
                 <button
-                  onClick={handlePublish}
-                  disabled={saving || questions.length === 0}
-                  className="flex items-center gap-2 px-5 py-2.5 text-white font-bold rounded-xl hover:brightness-110 transition-all disabled:opacity-50"
-                  style={{ background: "linear-gradient(135deg, #003358 0%, #004a7c 100%)" }}
+                  onClick={() => router.push(`/CivicPartner/surveys/${surveyId}/edit`)}
+                  className="h-11 px-4 bg-white border border-gray-200 rounded-xl text-xs font-black text-gray-600 hover:bg-gray-50 transition-all"
+                  title="Open full editor"
                 >
-                  <span className="material-symbols-outlined text-sm">rocket_launch</span>
-                  {saving ? "Publishing..." : "Publish"}
+                  <span className="material-symbols-outlined text-sm">edit</span>
                 </button>
               </>
             )}
-            {isActive && (
-              <>
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-[#e6f6ff] text-[#003358] font-bold rounded-xl hover:bg-[#dbf1fe] transition-all disabled:opacity-50"
-                >
-                  <span className="material-symbols-outlined text-sm">save</span>
-                  Save Changes
-                </button>
-                <button
-                  onClick={() => setShowStopConfirm(true)}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-amber-100 text-amber-700 font-bold rounded-xl hover:bg-amber-200 transition-all"
-                >
-                  <span className="material-symbols-outlined text-sm">stop_circle</span>
-                  Stop Survey
-                </button>
-                <button
-                  onClick={() => setShowArchiveConfirm(true)}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-[#ffdad6] text-[#93000a] font-bold rounded-xl hover:bg-[#ffb4ab] transition-all"
-                >
-                  <span className="material-symbols-outlined text-sm">inventory_2</span>
-                  Archive
-                </button>
-              </>
-            )}
-            {isClosed && (
-              <>
-                <button
-                  onClick={handleRestart}
-                  disabled={saving}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-100 text-emerald-700 font-bold rounded-xl hover:bg-emerald-200 transition-all disabled:opacity-50"
-                >
-                  <span className="material-symbols-outlined text-sm">autorenew</span>
-                  Restart Survey
-                </button>
-                <button
-                  onClick={() => setShowArchiveConfirm(true)}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-300 transition-all"
-                >
-                  <span className="material-symbols-outlined text-sm">inventory_2</span>
-                  Archive
-                </button>
-              </>
-            )}
-            {!isDraft && (
+            {isPublished && (
               <button
-                onClick={() => handleExport("csv")}
-                className="flex items-center gap-2 px-5 py-2.5 bg-white text-[#003358] font-bold rounded-xl hover:bg-[#e6f6ff] transition-all"
-                style={{ border: "1px solid rgba(193,199,208,0.2)" }}
+                onClick={() => openConfirm('close', () => callStatusEndpoint("close", "Survey closed. Responses are no longer accepted."))}
+                disabled={transitioning}
+                className="h-11 px-8 bg-white border border-gray-200 rounded-xl text-xs font-black text-gray-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all disabled:opacity-40 flex items-center gap-2 uppercase tracking-tighter"
               >
-                <span className="material-symbols-outlined text-sm">download</span>
-                Export
+                <span className="material-symbols-outlined text-sm">lock</span>
+                {transitioning ? "Closing…" : "Close Survey"}
               </button>
             )}
-          </div>
-        </section>
-
-        {/* ── Error ── */}
-        {error && (
-          <div className="bg-[#ffdad6] text-[#93000a] p-4 rounded-xl text-sm font-medium flex items-center gap-2">
-            <span className="material-symbols-outlined text-sm">error</span>
-            {error}
-            <button onClick={() => setError("")} className="ml-auto">
-              <span className="material-symbols-outlined text-sm">close</span>
+            {isClosed && (
+              <button
+                onClick={() => openConfirm('reopen', () => callStatusEndpoint("reopen", "Survey reopened and accepting responses again."))}
+                disabled={transitioning}
+                className="h-11 px-8 bg-[#465FFF] text-white rounded-xl text-xs font-black shadow-lg shadow-[#465FFF]/20 hover:bg-[#3451D1] transition-all disabled:opacity-40 flex items-center gap-2 uppercase tracking-tighter"
+              >
+                <span className="material-symbols-outlined text-sm">restart_alt</span>
+                {transitioning ? "Reopening…" : "Reopen Survey"}
+              </button>
+            )}
+            {/* Permanent Delete button */}
+            <button
+              onClick={() => openConfirm('delete', async () => {
+                setTransitioning(true)
+                try {
+                  const res = await fetch(`${API}/api/civic-partner/surveys/${surveyId}/permanent`, {
+                    method: 'DELETE',
+                    credentials: 'include',
+                  })
+                  const data = await res.json()
+                  if (!res.ok) throw new Error(data.message || 'Failed to delete')
+                  showToast('success', 'Survey permanently deleted.')
+                  router.push('/CivicPartner/surveys')
+                } catch (err) {
+                  showToast('error', err instanceof Error ? err.message : 'Failed to delete')
+                } finally { setTransitioning(false) }
+              })}
+              disabled={transitioning}
+              className="h-11 px-4 bg-white border border-gray-200 rounded-xl text-xs font-black text-rose-600 hover:bg-rose-50 transition-all disabled:opacity-40"
+              title="Permanently delete this survey and all its data"
+            >
+              <span className="material-symbols-outlined text-sm">delete_forever</span>
             </button>
           </div>
-        )}
+        </div>
 
-        {/* ── Tabs ── */}
-        <div className="flex gap-1 bg-[#e6f6ff] p-1 rounded-xl w-fit">
-          {TABS.map((tab) => (
+        {/* ── Tabs ──────────────────────────────────────────────────── */}
+        <div className="flex gap-2 bg-white p-1.5 rounded-2xl border border-gray-200 w-fit mb-8 shadow-sm">
+          {([
+            { id: "overview",  label: "Overview",  icon: "dashboard" },
+            { id: "questions", label: "Questions", icon: "quiz"      },
+            { id: "analytics", label: "Heatmap",   icon: "map"       },
+          ] as { id: Tab; label: string; icon: string }[]).map((tab) => (
             <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${
-                activeTab === tab.key
-                  ? "bg-white text-[#003358] shadow-sm"
-                  : "text-[#727780] hover:text-[#003358]"
-              }`}
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all",
+                activeTab === tab.id ? "bg-[#EEF1FF] text-[#465FFF] shadow-sm" : "text-gray-400 hover:text-gray-700"
+              )}
             >
               <span className="material-symbols-outlined text-sm">{tab.icon}</span>
               {tab.label}
+              {tab.id === "questions" && (
+                <span className="ml-0.5 text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-md font-black">
+                  {questions.length}
+                </span>
+              )}
             </button>
           ))}
         </div>
 
-        {/* ── TAB: Overview ── */}
-        {activeTab === "overview" && (
-          <div className="space-y-8">
-            {/* Quick Stats for non-draft */}
-            {!isDraft && overview && (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div className="bg-white p-6 rounded-xl" style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.04)" }}>
-                  <p className="text-[#727780] text-xs font-bold uppercase tracking-widest mb-3">Total Responses</p>
-                  <span className="text-3xl font-extrabold text-[#003358]" style={{ fontFamily: "'Manrope', sans-serif" }}>
-                    {overview.totalResponses.toLocaleString()}
-                  </span>
-                </div>
-                <div className="bg-white p-6 rounded-xl" style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.04)" }}>
-                  <p className="text-[#727780] text-xs font-bold uppercase tracking-widest mb-3">Completion Rate</p>
-                  <span className="text-3xl font-extrabold text-[#003358]" style={{ fontFamily: "'Manrope', sans-serif" }}>
-                    {overview.completionRate}%
-                  </span>
-                  <div className="w-full bg-[#e6f6ff] h-1.5 rounded-full mt-3">
-                    <div className="bg-[#006b5e] h-full rounded-full" style={{ width: `${overview.completionRate}%` }} />
-                  </div>
-                </div>
-                <div className="bg-white p-6 rounded-xl" style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.04)" }}>
-                  <p className="text-[#727780] text-xs font-bold uppercase tracking-widest mb-3">Avg. Time</p>
-                  <span className="text-3xl font-extrabold text-[#003358]" style={{ fontFamily: "'Manrope', sans-serif" }}>
-                    {formatTime(overview.avgTimeToCompleteSeconds)}
-                  </span>
-                </div>
-                <div className="bg-white p-6 rounded-xl" style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.04)" }}>
-                  <p className="text-[#727780] text-xs font-bold uppercase tracking-widest mb-3">Last 7 Days</p>
-                  <span className="text-3xl font-extrabold text-[#003358]" style={{ fontFamily: "'Manrope', sans-serif" }}>
-                    {overview.last7d}
-                  </span>
-                  <p className="text-xs text-[#727780] mt-1">{overview.last24h} in last 24h</p>
-                </div>
-              </div>
-            )}
+        {/* ── Content grid ──────────────────────────────────────────── */}
+        <div className="grid grid-cols-12 gap-8">
+          <div className="col-span-12 lg:col-span-8">
+            <AnimatePresence mode="wait">
 
-            {/* Survey details card */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-2 bg-white p-8 rounded-xl" style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.04)" }}>
-                <h3 className="text-lg font-bold text-[#003358] mb-6" style={{ fontFamily: "'Manrope', sans-serif" }}>
-                  Survey Details
-                </h3>
-                <div className="space-y-5">
+              {/* ── Overview tab ──────────────────────────────────── */}
+              {activeTab === "overview" && (
+                <motion.div key="overview" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="bg-white rounded-2xl border border-gray-100 p-8 shadow-sm space-y-6">
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-[#727780] uppercase tracking-wider">Title</label>
-                    {canEdit ? (
-                      <input
-                        className="w-full px-5 py-3 bg-[#f3faff] border border-[#e6f6ff] rounded-xl focus:ring-2 focus:ring-[#006b5e]/30 focus:border-[#006b5e] text-[#071e27] transition-all"
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                      />
-                    ) : (
-                      <p className="text-sm font-semibold text-[#003358] px-1">{title}</p>
-                    )}
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-1">Campaign Title</label>
+                    <input
+                      className="w-full h-12 px-5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-black outline-none focus:ring-2 focus:ring-[#465FFF]/20 focus:border-[#465FFF] transition-all disabled:opacity-50"
+                      value={title}
+                      onChange={(e) => { setTitle(e.target.value); setIsDirty(true) }}
+                      disabled={!isEditable}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-1">Description</label>
+                      <textarea
+                      className="w-full p-5 bg-gray-50 border border-gray-200 rounded-xl font-medium text-black outline-none h-32 resize-none focus:ring-2 focus:ring-[#465FFF]/20 focus:border-[#465FFF] transition-all disabled:opacity-50"
+                      value={description}
+                      onChange={(e) => { setDescription(e.target.value); setIsDirty(true) }}
+                      disabled={!isEditable}
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-[#727780] uppercase tracking-wider">Category</label>
-                      {canEdit ? (
-                        <select
-                          className="w-full px-5 py-3 bg-[#f3faff] border border-[#e6f6ff] rounded-xl text-[#071e27] focus:ring-2 focus:ring-[#006b5e]/30 transition-all"
-                          value={category}
-                          onChange={(e) => setCategory(e.target.value)}
-                        >
-                          {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-                        </select>
-                      ) : (
-                        <p className="text-sm font-semibold text-[#003358] px-1">{category}</p>
-                      )}
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-1">Category</label>
+                      <select
+                        className="w-full h-12 px-5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-black outline-none focus:ring-2 focus:ring-[#465FFF]/20 focus:border-[#465FFF] transition-all disabled:opacity-50"
+                        value={category}
+                        onChange={(e) => { setCategory(e.target.value); setIsDirty(true) }}
+                        disabled={!isEditable}
+                      >
+                        {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                      </select>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-[#727780] uppercase tracking-wider">Department</label>
-                      {canEdit ? (
-                        <input
-                          className="w-full px-5 py-3 bg-[#f3faff] border border-[#e6f6ff] rounded-xl text-[#071e27] focus:ring-2 focus:ring-[#006b5e]/30 transition-all"
-                          value={content}
-                          onChange={(e) => setContent(e.target.value)}
-                        />
-                      ) : (
-                        <p className="text-sm font-semibold text-[#003358] px-1">{content}</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-[#727780] uppercase tracking-wider">Description</label>
-                    {canEdit ? (
-                      <textarea
-                        className="w-full px-5 py-3 bg-[#f3faff] border border-[#e6f6ff] rounded-xl text-[#071e27] resize-none focus:ring-2 focus:ring-[#006b5e]/30 transition-all"
-                        rows={3}
-                        value={description}
-                        onChange={(e) => setDescription(e.target.value)}
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-1">Target Department</label>
+                      <input
+                        className="w-full h-12 px-5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-black outline-none focus:ring-2 focus:ring-[#465FFF]/20 focus:border-[#465FFF] transition-all disabled:opacity-50"
+                        value={content}
+                        onChange={(e) => { setContent(e.target.value); setIsDirty(true) }}
+                        disabled={!isEditable}
                       />
-                    ) : (
-                      <p className="text-sm text-[#42474f] px-1 leading-relaxed">{description}</p>
-                    )}
+                    </div>
                   </div>
-                </div>
-              </div>
-
-              {/* Sidebar info */}
-              <div className="space-y-6">
-                <div className="bg-white p-6 rounded-xl" style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.04)" }}>
-                  <h4 className="text-sm font-bold text-[#003358] mb-4">Survey Info</h4>
-                  <div className="space-y-3 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-[#727780]">Status</span>
-                      <span className={`font-bold ${sc.text}`}>{sc.label}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[#727780]">Questions</span>
-                      <span className="font-bold text-[#003358]">{questions.length}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[#727780]">Category</span>
-                      <span className="font-bold text-[#003358]">{category}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[#727780]">Created</span>
-                      <span className="font-bold text-[#003358]">{new Date(survey.createdAt).toLocaleDateString()}</span>
-                    </div>
-                    {survey.lastUpdated && (
-                      <div className="flex justify-between">
-                        <span className="text-[#727780]">Last Updated</span>
-                        <span className="font-bold text-[#003358]">{new Date(survey.lastUpdated).toLocaleDateString()}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Quick Actions */}
-                {canEdit && (
-                  <div className="p-6 rounded-xl text-white" style={{ background: "linear-gradient(135deg, #003358 0%, #004a7c 100%)" }}>
-                    <h4 className="text-sm font-bold mb-4 flex items-center gap-2">
-                      <span className="material-symbols-outlined text-sm">bolt</span>
-                      Quick Actions
-                    </h4>
+                  <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-2">
-                      <button
-                        onClick={() => { setActiveTab("questions"); setShowAddQuestion(true); addQuestion() }}
-                        className="w-full flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-all"
-                      >
-                        <span className="material-symbols-outlined text-sm">add_circle</span>
-                        Add New Question
-                      </button>
-                      <button
-                        onClick={() => setActiveTab("questions")}
-                        className="w-full flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-all"
-                      >
-                        <span className="material-symbols-outlined text-sm">edit</span>
-                        Modify Questions
-                      </button>
-                      {isActive && (
-                        <button
-                          onClick={() => setShowStopConfirm(true)}
-                          className="w-full flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-all"
-                        >
-                          <span className="material-symbols-outlined text-sm">stop_circle</span>
-                          Stop Accepting Responses
-                        </button>
-                      )}
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-1">Start Date (Optional)</label>
+                      <input
+                        type="datetime-local"
+                        className="w-full h-12 px-5 bg-gray-50 border border-gray-200 rounded-xl font-medium text-black outline-none focus:ring-2 focus:ring-[#465FFF]/20 focus:border-[#465FFF] transition-all disabled:opacity-50"
+                        value={startsAt}
+                        onChange={(e) => { setStartsAt(e.target.value); setIsDirty(true) }}
+                        disabled={!isDraft}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-1">End Date (Optional)</label>
+                      <input
+                        type="datetime-local"
+                        className="w-full h-12 px-5 bg-gray-50 border border-gray-200 rounded-xl font-medium text-black outline-none focus:ring-2 focus:ring-[#465FFF]/20 focus:border-[#465FFF] transition-all disabled:opacity-50"
+                        value={endsAt}
+                        onChange={(e) => { setEndsAt(e.target.value); setIsDirty(true) }}
+                        disabled={!isDraft}
+                      />
                     </div>
                   </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── TAB: Questions ── */}
-        {activeTab === "questions" && (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <div>
-                <h3 className="text-xl font-bold text-[#003358]" style={{ fontFamily: "'Manrope', sans-serif" }}>
-                  Questions ({questions.length})
-                </h3>
-                <p className="text-sm text-[#727780] mt-1">
-                  {canEdit ? "Click any question to edit it, or add new ones below." : "This survey's questions are shown below."}
-                </p>
-              </div>
-              {canEdit && (
-                <button
-                  onClick={addQuestion}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-[#006b5e] text-white font-bold rounded-xl hover:bg-[#005047] transition-all"
-                >
-                  <span className="material-symbols-outlined text-sm">add_circle</span>
-                  Add Question
-                </button>
+                  {!isDraft && (
+                    <p className="text-xs text-gray-400 bg-gray-50 rounded-xl px-4 py-3 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-sm">info</span>
+                      Fields are read-only while the survey is {survey.status.toLowerCase()}. Close the survey to re-enter draft mode.
+                    </p>
+                  )}
+                  {isDraft && isDirty && (
+                    <button
+                      onClick={handleSaveDraft}
+                      disabled={saving}
+                      className="w-full h-11 bg-[#465FFF] text-white rounded-xl text-xs font-black shadow-sm hover:bg-[#3451D1] transition-all disabled:opacity-50"
+                    >
+                      {saving ? "Saving…" : "Save Changes"}
+                    </button>
+                  )}
+                </motion.div>
               )}
-            </div>
 
-            {questions.length === 0 && (
-              <div className="bg-[#e6f6ff] p-12 rounded-xl text-center" style={{ border: "2px dashed rgba(193,199,208,0.5)" }}>
-                <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center mx-auto mb-4">
-                  <span className="material-symbols-outlined text-4xl text-[#727780]">edit_document</span>
-                </div>
-                <p className="text-[#727780] font-medium">No questions yet. Add your first question to get started.</p>
-              </div>
-            )}
-
-            {questions.map((q, idx) => {
-              const isEditing = editingQuestionIdx === idx
-              return (
-                <div
-                  key={idx}
-                  className={`bg-white rounded-xl transition-all ${isEditing ? "ring-2 ring-[#006b5e]/30" : "hover:shadow-lg"}`}
-                  style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.04)", border: "1px solid rgba(193,199,208,0.1)" }}
-                >
-                  {/* Question Header */}
-                  <div
-                    className={`flex items-center justify-between p-6 ${canEdit ? "cursor-pointer" : ""}`}
-                    onClick={() => canEdit && setEditingQuestionIdx(isEditing ? null : idx)}
-                  >
-                    <div className="flex items-center gap-4">
-                      <span
-                        className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-sm font-bold"
-                        style={{ background: "linear-gradient(135deg, #003358 0%, #004a7c 100%)" }}
+              {/* ── Questions tab ──────────────────────────────────── */}
+              {activeTab === "questions" && (
+                <motion.div key="questions" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+                  <div className="flex items-center justify-between px-1">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                      {questions.length} Question{questions.length !== 1 ? "s" : ""}
+                    </p>
+                    {isDraft && (
+                      <button
+                        onClick={addQuestion}
+                        className="h-9 px-5 bg-[#465FFF] text-white rounded-xl text-xs font-black flex items-center gap-1.5 hover:bg-[#3451D1] transition-all shadow-md shadow-[#465FFF]/20"
                       >
-                        {idx + 1}
-                      </span>
-                      <div>
-                        <p className="font-bold text-[#003358]">{q.questionText || "Untitled Question"}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-[10px] px-2 py-0.5 bg-[#e6f6ff] text-[#003358] rounded-full font-bold">
+                        <span className="material-symbols-outlined text-sm">add</span>
+                        Add Question
+                      </button>
+                    )}
+                  </div>
+
+                  {questions.length === 0 && (
+                    <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-12 text-center">
+                      <span className="material-symbols-outlined text-4xl text-gray-200 block mb-3">quiz</span>
+                      <p className="text-sm font-bold text-gray-400">No questions yet.</p>
+                      {isDraft && <p className="text-xs text-gray-300 mt-1">Click "Add Question" to get started.</p>}
+                    </div>
+                  )}
+
+                  {questions.map((q, idx) => (
+                    <div key={idx} className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+                      <div className="flex items-center justify-between mb-5">
+                        <div className="flex items-center gap-3">
+                          <span className="h-8 w-8 bg-[#EEF1FF] text-[#465FFF] rounded-xl flex items-center justify-center font-black text-sm">{idx + 1}</span>
+                          <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase bg-gray-50 text-gray-400">
                             {QUESTION_TYPE_LABELS[q.questionType]}
                           </span>
-                          {q.isRequired && (
-                            <span className="text-[10px] px-2 py-0.5 bg-[#ffdad6] text-[#93000a] rounded-full font-bold">
-                              Required
-                            </span>
-                          )}
+                          {q.isRequired && <span className="px-2 py-0.5 rounded-md text-[10px] font-black text-red-500 bg-red-50">Required</span>}
                         </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {canEdit && (
-                        <span className="material-symbols-outlined text-[#727780] transition-transform" style={{ transform: isEditing ? "rotate(180deg)" : "" }}>
-                          expand_more
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Expanded Edit Panel */}
-                  {isEditing && canEdit && (
-                    <div className="px-6 pb-6 space-y-4 border-t border-[#e6f6ff] pt-4">
-                      <div className="space-y-2">
-                        <label className="text-xs font-bold text-[#727780] uppercase tracking-wider">Question Text</label>
-                        <input
-                          className="w-full px-5 py-3 bg-[#f3faff] border border-[#e6f6ff] rounded-xl focus:ring-2 focus:ring-[#006b5e]/30 text-[#071e27]"
-                          placeholder="Enter your question..."
-                          value={q.questionText}
-                          onChange={(e) => updateQuestion(idx, { questionText: e.target.value })}
-                        />
+                        {isDraft && (
+                          <button onClick={() => removeQuestion(idx)} className="h-8 w-8 rounded-xl text-gray-300 hover:bg-red-50 hover:text-red-500 flex items-center justify-center transition-all">
+                            <span className="material-symbols-outlined text-sm">delete</span>
+                          </button>
+                        )}
                       </div>
 
-                      <div className="flex items-center gap-4">
-                        <div className="space-y-1">
-                          <label className="text-xs font-bold text-[#727780] uppercase tracking-wider">Type</label>
-                          <select
-                            className="px-4 py-2.5 bg-[#f3faff] border border-[#e6f6ff] rounded-xl text-sm font-medium text-[#003358]"
-                            value={q.questionType}
-                            onChange={(e) =>
-                              updateQuestion(idx, {
-                                questionType: e.target.value as QuestionType,
-                                options: ["MCQ", "CHECKBOX"].includes(e.target.value) ? (q.options.length ? q.options : [""]) : [],
-                              })
-                            }
-                          >
-                            {Object.entries(QUESTION_TYPE_LABELS).map(([k, v]) => (
-                              <option key={k} value={k}>{v}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <label className="flex items-center gap-2 text-sm mt-5">
+                      <input
+                        className="w-full h-11 px-4 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold text-black outline-none focus:ring-2 focus:ring-[#465FFF]/20 focus:border-[#465FFF] transition-all mb-4 disabled:opacity-50"
+                        placeholder={`Question ${idx + 1} text…`}
+                        value={q.questionText}
+                        onChange={(e) => updateQuestion(idx, { questionText: e.target.value })}
+                        disabled={!isDraft}
+                      />
+
+                      <div className="flex items-center gap-4 mb-4">
+                        <select
+                          className="h-9 px-4 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-600 outline-none focus:ring-2 focus:ring-[#465FFF]/20 disabled:opacity-50"
+                          value={q.questionType}
+                          disabled={!isDraft}
+                          onChange={(e) =>
+                            updateQuestion(idx, {
+                              questionType: e.target.value as QuestionType,
+                              options: ["MCQ", "CHECKBOX"].includes(e.target.value)
+                                ? (q.options.length ? q.options : [""])
+                                : [],
+                            })
+                          }
+                        >
+                          {Object.entries(QUESTION_TYPE_LABELS).map(([k, v]) => (
+                            <option key={k} value={k}>{v}</option>
+                          ))}
+                        </select>
+                        <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
                           <input
                             type="checkbox"
                             checked={q.isRequired}
+                            disabled={!isDraft}
                             onChange={(e) => updateQuestion(idx, { isRequired: e.target.checked })}
-                            className="w-4 h-4 rounded text-[#006b5e] focus:ring-[#006b5e]/40"
+                            className="w-4 h-4 rounded accent-[#465FFF]"
                           />
-                          <span className="text-[#003358] font-medium">Required</span>
+                          <span className="font-bold text-gray-600">Required</span>
                         </label>
                       </div>
 
-                      {/* MCQ / CHECKBOX options */}
                       {["MCQ", "CHECKBOX"].includes(q.questionType) && (
-                        <div className="space-y-3">
-                          <label className="text-xs font-bold text-[#727780] uppercase tracking-wider">Options</label>
+                        <div className="space-y-2 pl-2 border-l-2 border-[#EEF1FF]">
                           {q.options.map((opt, oIdx) => (
                             <div key={oIdx} className="flex items-center gap-2">
-                              <span className="w-6 h-6 rounded-full border-2 border-[#c1c7d0] flex items-center justify-center text-[10px] font-bold text-[#727780]">
-                                {String.fromCharCode(65 + oIdx)}
-                              </span>
+                              <span className={cn("w-4 h-4 flex-shrink-0 border-2 border-gray-200", q.questionType === "CHECKBOX" ? "rounded" : "rounded-full")} />
                               <input
-                                className="flex-1 px-4 py-2.5 bg-[#f3faff] border border-[#e6f6ff] rounded-lg text-sm text-[#071e27] focus:ring-1 focus:ring-[#006b5e]/30"
+                                className="flex-1 h-9 px-4 bg-gray-50 border border-gray-100 rounded-xl text-sm text-black outline-none focus:ring-1 focus:ring-[#465FFF]/20 disabled:opacity-50"
                                 placeholder={`Option ${oIdx + 1}`}
                                 value={opt}
                                 onChange={(e) => updateOption(idx, oIdx, e.target.value)}
+                                disabled={!isDraft}
                               />
-                              {q.options.length > 1 && (
-                                <button onClick={() => removeOption(idx, oIdx)} className="p-1 hover:bg-[#ffdad6] rounded-lg transition-colors">
-                                  <span className="material-symbols-outlined text-sm text-[#ba1a1a]">close</span>
+                              {isDraft && q.options.length > 1 && (
+                                <button onClick={() => removeOption(idx, oIdx)} className="text-gray-300 hover:text-red-400 transition-colors">
+                                  <span className="material-symbols-outlined text-sm">close</span>
                                 </button>
                               )}
                             </div>
                           ))}
-                          <button
-                            onClick={() => addOption(idx)}
-                            className="flex items-center gap-1 text-sm font-bold text-[#006b5e] hover:underline"
-                          >
-                            <span className="material-symbols-outlined text-sm">add</span>
-                            Add Option
-                          </button>
+                          {isDraft && (
+                            <button onClick={() => addOption(idx)} className="text-xs font-bold text-[#465FFF] hover:underline flex items-center gap-1 mt-1">
+                              <span className="material-symbols-outlined text-sm">add</span> Add option
+                            </button>
+                          )}
                         </div>
                       )}
+                    </div>
+                  ))}
 
-                      {/* Delete question */}
-                      <div className="flex justify-end pt-2">
-                        <button
-                          onClick={() => removeQuestion(idx)}
-                          className="flex items-center gap-2 px-4 py-2 text-[#ba1a1a] hover:bg-[#ffdad6] rounded-lg text-sm font-bold transition-all"
-                        >
-                          <span className="material-symbols-outlined text-sm">delete</span>
-                          Remove Question
-                        </button>
-                      </div>
+                  {isDraft && isDirty && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-2xl px-6 py-4 flex items-center justify-between">
+                      <p className="text-xs font-bold text-amber-700 flex items-center gap-2">
+                        <span className="material-symbols-outlined text-sm">pending</span>
+                        Unsaved changes to your questions.
+                      </p>
+                      <button
+                        onClick={handleSaveDraft}
+                        disabled={saving}
+                        className="h-9 px-5 bg-[#465FFF] text-white rounded-xl text-xs font-black hover:bg-[#3451D1] transition-all disabled:opacity-50"
+                      >
+                        {saving ? "Saving…" : "Save Draft"}
+                      </button>
                     </div>
                   )}
-                </div>
-              )
-            })}
-          </div>
-        )}
+                </motion.div>
+              )}
 
-        {/* ── TAB: Analytics ── */}
-        {activeTab === "analytics" && !isDraft && (
-          <div className="space-y-8">
-            {overview && (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div className="bg-white p-6 rounded-xl" style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.04)" }}>
-                  <p className="text-[#727780] text-xs font-bold uppercase tracking-widest mb-3">Total Responses</p>
-                  <span className="text-3xl font-extrabold text-[#003358]" style={{ fontFamily: "'Manrope', sans-serif" }}>
-                    {overview.totalResponses.toLocaleString()}
-                  </span>
-                  {overview.last7d > 0 && (
-                    <p className="text-emerald-600 text-xs font-bold mt-2 flex items-center gap-1">
-                      <span className="material-symbols-outlined text-xs">trending_up</span>
-                      +{overview.last7d} this week
-                    </p>
-                  )}
-                </div>
-                <div className="bg-white p-6 rounded-xl" style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.04)" }}>
-                  <p className="text-[#727780] text-xs font-bold uppercase tracking-widest mb-3">Completion Rate</p>
-                  <span className="text-3xl font-extrabold text-[#003358]" style={{ fontFamily: "'Manrope', sans-serif" }}>
-                    {overview.completionRate}%
-                  </span>
-                  <div className="w-full bg-[#e6f6ff] h-1.5 rounded-full mt-3">
-                    <div className="bg-[#006b5e] h-full rounded-full transition-all" style={{ width: `${overview.completionRate}%` }} />
+              {/* ── Analytics tab ──────────────────────────────────── */}
+              {activeTab === "analytics" && (
+                <motion.div key="analytics" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+                  <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+                    <div className="p-8 border-b border-gray-50 flex justify-between items-center">
+                      <div>
+                        <h3 className="text-lg font-black text-black">Citizen Interaction Heatmap</h3>
+                        <p className="text-xs text-emerald-500 font-black uppercase tracking-widest mt-1">Live — Google Maps API</p>
+                      </div>
+                      <div className="flex items-center gap-2 text-gray-300">
+                        <span className="material-symbols-outlined text-sm">info</span>
+                        <span className="text-[10px] font-bold">Regional clustering active</span>
+                      </div>
+                    </div>
+                    <div ref={mapRef} className="h-[500px] w-full bg-slate-50" />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* ── Right sidebar ─────────────────────────────────────── */}
+          <div className="col-span-12 lg:col-span-4 space-y-6">
+            <div className="bg-white rounded-2xl border border-gray-100 p-8 shadow-sm">
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6">Performance</h3>
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase">Total Responses</p>
+                    <p className="text-3xl font-black text-black mt-0.5">{(survey._count?.responses ?? 0).toLocaleString()}</p>
+                  </div>
+                  <div className="h-12 w-12 bg-[#EEF1FF] text-[#465FFF] rounded-xl flex items-center justify-center">
+                    <span className="material-symbols-outlined">group</span>
                   </div>
                 </div>
-                <div className="bg-white p-6 rounded-xl" style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.04)" }}>
-                  <p className="text-[#727780] text-xs font-bold uppercase tracking-widest mb-3">Avg. Time</p>
-                  <span className="text-3xl font-extrabold text-[#003358]" style={{ fontFamily: "'Manrope', sans-serif" }}>
-                    {formatTime(overview.avgTimeToCompleteSeconds)}
-                  </span>
-                  <p className="text-[#727780] text-xs mt-2">{overview.uniqueRespondents} unique respondents</p>
-                </div>
-                <div className="p-6 rounded-xl text-white" style={{ background: "linear-gradient(135deg, #003358 0%, #004a7c 100%)" }}>
-                  <p className="text-white/60 text-xs font-bold uppercase tracking-widest mb-3">Response Activity</p>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between"><span className="opacity-70">Last 24h</span><span className="font-bold">{overview.last24h}</span></div>
-                    <div className="flex justify-between"><span className="opacity-70">Last 7d</span><span className="font-bold">{overview.last7d}</span></div>
-                    <div className="flex justify-between"><span className="opacity-70">Last 30d</span><span className="font-bold">{overview.last30d}</span></div>
+                <div className="flex items-center justify-between border-t border-gray-50 pt-6">
+                  <div>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase">Questions</p>
+                    <p className="text-3xl font-black text-black mt-0.5">{questions.length}</p>
+                  </div>
+                  <div className="h-12 w-12 bg-emerald-50 text-emerald-500 rounded-xl flex items-center justify-center">
+                    <span className="material-symbols-outlined">quiz</span>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm space-y-3">
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Status Control</h3>
+              <div className={cn("flex items-center gap-3 p-4 rounded-xl", sc.bg)}>
+                <span className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", sc.dot)} />
+                <div>
+                  <p className={cn("text-xs font-black uppercase tracking-wide", sc.text)}>{sc.label}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">
+                    {isDraft      && "Not yet visible to citizens."}
+                    {isPublished  && "Visible and accepting responses."}
+                    {isClosed     && "Closed — no new responses."}
+                    {survey.status === "ARCHIVED" && "Archived and removed from all views."}
+                  </p>
+                </div>
+              </div>
+              {isDraft      && <p className="text-[10px] text-gray-400 leading-relaxed">Publish the survey to make it visible to citizens. You can close it at any time.</p>}
+              {isPublished  && <p className="text-[10px] text-gray-400 leading-relaxed">Close the survey to stop accepting new responses. You can reopen it later.</p>}
+              {isClosed     && <p className="text-[10px] text-gray-400 leading-relaxed">Reopen to resume accepting responses, or keep it closed to preserve the data snapshot.</p>}
+            </div>
+
+            {(survey.startsAt || survey.endsAt) && (
+              <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Schedule</h3>
+                {survey.startsAt && (
+                  <div className="flex items-center justify-between text-xs mb-3">
+                    <span className="text-gray-400 font-bold">Opens</span>
+                    <span className="font-black text-black">{new Date(survey.startsAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
+                  </div>
+                )}
+                {survey.endsAt && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-400 font-bold">Closes</span>
+                    <span className="font-black text-black">{new Date(survey.endsAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span>
+                  </div>
+                )}
               </div>
             )}
-
-            {/* Per-Question Breakdowns */}
-            {questionSummaries.map((q, qi) => {
-              const detail = questionDetails[q.questionId]
-              if (!detail) return null
-              const displayOrder = q.order ?? qi + 1
-              return (
-                <div key={q.questionId} className="bg-white p-8 rounded-xl" style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.04)" }}>
-                  <div className="flex items-center justify-between mb-6">
-                    <h4 className="text-lg font-bold text-[#003358]">
-                      Q{displayOrder}. {q.questionText}
-                    </h4>
-                    <span className="text-xs text-[#727780]">{q.totalAnswers} answers · {q.responseRate}% response rate</span>
-                  </div>
-
-                  {/* MCQ / CHECKBOX */}
-                  {(detail.questionType === "MCQ" || detail.questionType === "CHECKBOX") && detail.breakdown?.distribution && (
-                    <div className="space-y-4">
-                      {detail.breakdown.distribution.map((d: any, i: number) => (
-                        <div key={i} className="space-y-2">
-                          <div className="flex justify-between text-sm font-semibold">
-                            <span className="text-[#071e27]">{d.option}</span>
-                            <span className="text-[#003358]">{d.percentage}%</span>
-                          </div>
-                          <div className="w-full h-3 bg-[#e6f6ff] rounded-full overflow-hidden">
-                            <div className="h-full rounded-full transition-all" style={{ width: `${d.percentage}%`, background: i === 0 ? "#003358" : i < 3 ? `rgba(0,51,88,${0.8 - i * 0.15})` : "#006b5e" }} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* RATING */}
-                  {detail.questionType === "RATING" && detail.breakdown && (
-                    <div className="flex items-center gap-10">
-                      <div className="text-center">
-                        <div className="text-5xl font-extrabold text-[#006b5e]">{detail.breakdown.avgRating ?? "—"}</div>
-                        <div className="flex text-[#ffb95f] mt-2 justify-center">
-                          {[1, 2, 3, 4, 5].map((star) => (
-                            <span key={star} className="material-symbols-outlined" style={{ fontVariationSettings: star <= Math.round(detail.breakdown.avgRating ?? 0) ? "'FILL' 1" : "'FILL' 0" }}>star</span>
-                          ))}
-                        </div>
-                        <p className="text-[#727780] text-[10px] mt-2 font-bold">OUT OF 5.0</p>
-                      </div>
-                      <div className="flex-1 space-y-1">
-                        {[5, 4, 3, 2, 1].map((rating) => {
-                          const item = detail.breakdown.distribution?.find((d: any) => d.rating === rating)
-                          const count = item?.count ?? 0
-                          const maxCount = Math.max(1, ...(detail.breakdown.distribution?.map((d: any) => d.count) ?? [1]))
-                          return (
-                            <div key={rating} className="flex items-center gap-4">
-                              <span className="text-[10px] font-bold text-[#727780] w-4">{rating}</span>
-                              <div className="flex-1 h-1 bg-[#dbf1fe] rounded-full"><div className="h-full bg-[#006b5e] rounded-full" style={{ width: `${(count / maxCount) * 100}%` }} /></div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* YES_NO */}
-                  {detail.questionType === "YES_NO" && detail.breakdown && (
-                    <div className="flex gap-6">
-                      <div className="flex-1 bg-emerald-50 p-6 rounded-xl text-center">
-                        <p className="text-3xl font-extrabold text-emerald-600">{detail.breakdown.yesPercentage}%</p>
-                        <p className="text-sm font-bold text-emerald-600 mt-1">Yes</p>
-                      </div>
-                      <div className="flex-1 bg-red-50 p-6 rounded-xl text-center">
-                        <p className="text-3xl font-extrabold text-red-500">{detail.breakdown.noPercentage}%</p>
-                        <p className="text-sm font-bold text-red-500 mt-1">No</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* TEXT */}
-                  {detail.questionType === "TEXT" && detail.breakdown && (
-                    <div className="space-y-4">
-                      {detail.breakdown.topKeywords?.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mb-4">
-                          {detail.breakdown.topKeywords.slice(0, 12).map((kw: any, i: number) => (
-                            <span key={i} className={`px-3 py-1.5 text-xs font-bold rounded-full ${i < 3 ? "bg-emerald-100 text-emerald-700" : "bg-[#e6f6ff] text-[#003358]"}`}>
-                              {kw.word} ({kw.count})
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {detail.breakdown.samples?.slice(0, 3).map((sample: string, i: number) => (
-                        <div key={i} className="p-4 bg-[#f3faff] rounded-lg" style={{ borderLeft: `4px solid ${i % 2 === 0 ? "#006b5e" : "#003358"}` }}>
-                          <p className="text-xs italic text-[#071e27]">&ldquo;{sample}&rdquo;</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-
-            {/* Export */}
-            <div className="bg-[#e6f6ff] p-6 rounded-xl flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="material-symbols-outlined text-[#003358]">database</span>
-                <div>
-                  <p className="text-sm font-bold text-[#003358]">Export Survey Data</p>
-                  <p className="text-xs text-[#727780]">Download responses for offline analysis</p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <button onClick={() => handleExport("csv")} className="px-4 py-2 bg-white text-[#003358] font-bold rounded-lg text-sm hover:bg-[#dbf1fe] transition-all" style={{ border: "1px solid rgba(193,199,208,0.2)" }}>
-                  CSV
-                </button>
-                <button onClick={() => handleExport("json")} className="px-4 py-2 bg-white text-[#003358] font-bold rounded-lg text-sm hover:bg-[#dbf1fe] transition-all" style={{ border: "1px solid rgba(193,199,208,0.2)" }}>
-                  JSON
-                </button>
-              </div>
-            </div>
           </div>
-        )}
-
-        {/* ── TAB: Settings ── */}
-        {activeTab === "settings" && (
-          <div className="space-y-8 max-w-3xl">
-            <div className="bg-white p-8 rounded-xl" style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.04)" }}>
-              <h3 className="text-lg font-bold text-[#003358] mb-6" style={{ fontFamily: "'Manrope', sans-serif" }}>
-                Schedule
-              </h3>
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-[#727780] uppercase tracking-wider">Start Date</label>
-                  {canEdit ? (
-                    <input
-                      type="datetime-local"
-                      className="w-full px-5 py-3 bg-[#f3faff] border border-[#e6f6ff] rounded-xl focus:ring-2 focus:ring-[#006b5e]/30 text-[#071e27]"
-                      value={startsAt}
-                      onChange={(e) => setStartsAt(e.target.value)}
-                    />
-                  ) : (
-                    <p className="text-sm font-semibold text-[#003358]">{startsAt ? new Date(startsAt).toLocaleString() : "Not set"}</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-[#727780] uppercase tracking-wider">End Date</label>
-                  {canEdit ? (
-                    <input
-                      type="datetime-local"
-                      className="w-full px-5 py-3 bg-[#f3faff] border border-[#e6f6ff] rounded-xl focus:ring-2 focus:ring-[#006b5e]/30 text-[#071e27]"
-                      value={endsAt}
-                      onChange={(e) => setEndsAt(e.target.value)}
-                    />
-                  ) : (
-                    <p className="text-sm font-semibold text-[#003358]">{endsAt ? new Date(endsAt).toLocaleString() : "Not set"}</p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Danger Zone */}
-            <div className="bg-white p-8 rounded-xl border border-red-200" style={{ boxShadow: "0 4px 16px rgba(0,0,0,0.04)" }}>
-              <h3 className="text-lg font-bold text-[#93000a] mb-4 flex items-center gap-2" style={{ fontFamily: "'Manrope', sans-serif" }}>
-                <span className="material-symbols-outlined text-lg">warning</span>
-                Danger Zone
-              </h3>
-              <div className="space-y-4">
-                {isActive && (
-                  <div className="flex items-center justify-between p-4 bg-amber-50 rounded-xl">
-                    <div>
-                      <p className="text-sm font-bold text-amber-800">Stop Survey</p>
-                      <p className="text-xs text-amber-700">Stop accepting new responses. Existing data is preserved.</p>
-                    </div>
-                    <button
-                      onClick={() => setShowStopConfirm(true)}
-                      className="px-4 py-2 bg-amber-600 text-white font-bold rounded-lg text-sm hover:bg-amber-700 transition-all"
-                    >
-                      Stop Survey
-                    </button>
-                  </div>
-                )}
-                {(isActive || isClosed) && (
-                  <div className="flex items-center justify-between p-4 bg-red-50 rounded-xl">
-                    <div>
-                      <p className="text-sm font-bold text-[#93000a]">Archive Survey</p>
-                      <p className="text-xs text-[#93000a]/70">Move to archives. This action can be undone from settings.</p>
-                    </div>
-                    <button
-                      onClick={() => setShowArchiveConfirm(true)}
-                      className="px-4 py-2 bg-[#ba1a1a] text-white font-bold rounded-lg text-sm hover:bg-[#93000a] transition-all"
-                    >
-                      Archive
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ════════ Confirmation Modals ════════ */}
-
-        {/* Stop Confirm Modal */}
-        {showStopConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowStopConfirm(false)} />
-            <div className="relative bg-white rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl">
-              <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
-                <span className="material-symbols-outlined text-3xl text-amber-600">stop_circle</span>
-              </div>
-              <h3 className="text-xl font-bold text-[#003358] text-center mb-2" style={{ fontFamily: "'Manrope', sans-serif" }}>
-                Stop this Survey?
-              </h3>
-              <p className="text-[#727780] text-center text-sm mb-6">
-                This will close the survey and stop accepting new responses. All collected data will be preserved.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowStopConfirm(false)}
-                  className="flex-1 px-4 py-3 bg-[#e6f6ff] text-[#003358] font-bold rounded-xl hover:bg-[#dbf1fe] transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleStop}
-                  disabled={saving}
-                  className="flex-1 px-4 py-3 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 transition-all disabled:opacity-50"
-                >
-                  {saving ? "Stopping..." : "Yes, Stop Survey"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Archive Confirm Modal */}
-        {showArchiveConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowArchiveConfirm(false)} />
-            <div className="relative bg-white rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl">
-              <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
-                <span className="material-symbols-outlined text-3xl text-[#ba1a1a]">inventory_2</span>
-              </div>
-              <h3 className="text-xl font-bold text-[#003358] text-center mb-2" style={{ fontFamily: "'Manrope', sans-serif" }}>
-                Archive this Survey?
-              </h3>
-              <p className="text-[#727780] text-center text-sm mb-6">
-                The survey will be moved to the archive. You can still view collected data and export reports.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowArchiveConfirm(false)}
-                  className="flex-1 px-4 py-3 bg-[#e6f6ff] text-[#003358] font-bold rounded-xl hover:bg-[#dbf1fe] transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleArchive}
-                  disabled={saving}
-                  className="flex-1 px-4 py-3 bg-[#ba1a1a] text-white font-bold rounded-xl hover:bg-[#93000a] transition-all disabled:opacity-50"
-                >
-                  {saving ? "Archiving..." : "Yes, Archive"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        </div>
       </div>
+      {/* Confirm Modal */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl p-6 w-full max-w-lg mx-4">
+            <h3 className="text-lg font-bold mb-3">
+              {confirmType === 'close' ? 'Confirm close survey' : confirmType === 'reopen' ? 'Confirm reopen' : confirmType === 'delete' ? 'Permanently delete survey' : 'Confirm archive'}
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              {confirmType === 'close'
+                ? 'Type CLOSE to confirm you want to close this survey. Closing will stop accepting responses.'
+                : confirmType === 'reopen'
+                ? 'Are you sure you want to reopen this survey? Reopening will make it live again.'
+                : confirmType === 'delete'
+                ? 'Type DELETE to permanently remove this survey and all associated data. This action is irreversible.'
+                : 'Are you sure you want to archive this survey? This will move it to the Archived list.'}
+            </p>
+            {(confirmType === 'close' || confirmType === 'delete') && (
+              <input value={confirmInput} onChange={(e) => setConfirmInput(e.target.value)} placeholder={confirmType === 'delete' ? "Type DELETE to confirm" : "Type CLOSE to confirm"} className="w-full px-4 py-2 border rounded mb-4" />
+            )}
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setShowConfirm(false)} className="px-4 py-2 rounded bg-gray-100">Cancel</button>
+              <button
+                onClick={runConfirm}
+                disabled={confirmType === 'close' ? confirmInput.trim() !== 'CLOSE' : confirmType === 'delete' ? confirmInput.trim() !== 'DELETE' : false}
+                className="px-4 py-2 rounded bg-emerald-600 text-white disabled:opacity-50"
+              >Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
     </CivicPartnerLayout>
   )
 }

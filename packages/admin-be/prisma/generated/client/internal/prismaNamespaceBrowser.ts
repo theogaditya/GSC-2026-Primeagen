@@ -61,10 +61,10 @@ export const ModelName = {
   SuperAdmin: 'SuperAdmin',
   Category: 'Category',
   Complaint: 'Complaint',
-  BlockchainSyncEvent: 'BlockchainSyncEvent',
   ComplaintLocation: 'ComplaintLocation',
   Upvote: 'Upvote',
   NewsUpdate: 'NewsUpdate',
+  Announcement: 'Announcement',
   AuditLog: 'AuditLog',
   RegionalWorkflow: 'RegionalWorkflow',
   Chat: 'Chat',
@@ -72,6 +72,7 @@ export const ModelName = {
   operating_districts: 'operating_districts',
   Badge: 'Badge',
   UserBadge: 'UserBadge',
+  BlockchainSyncEvent: 'BlockchainSyncEvent',
   CivicPartner: 'CivicPartner',
   Survey: 'Survey',
   SurveyQuestion: 'SurveyQuestion',
@@ -311,31 +312,21 @@ export const ComplaintScalarFieldEnum = {
   blockchainStatus: 'blockchainStatus',
   blockchainUpdatedAt: 'blockchainUpdatedAt',
   sla: 'sla',
+  slaDeadline: 'slaDeadline',
+  slaBreached: 'slaBreached',
   AIabusedFlag: 'AIabusedFlag',
   AIimageVarificationStatus: 'AIimageVarificationStatus',
   AIstandardizedSubCategory: 'AIstandardizedSubCategory',
   lastUpdated: 'lastUpdated',
-  isDuplicate: 'isDuplicate'
+  isDuplicate: 'isDuplicate',
+  qualityScore: 'qualityScore',
+  qualityBreakdown: 'qualityBreakdown',
+  hasSimilarComplaints: 'hasSimilarComplaints',
+  similarComplaintIds: 'similarComplaintIds',
+  abuseMetadata: 'abuseMetadata'
 } as const
 
 export type ComplaintScalarFieldEnum = (typeof ComplaintScalarFieldEnum)[keyof typeof ComplaintScalarFieldEnum]
-
-
-export const BlockchainSyncEventScalarFieldEnum = {
-  id: 'id',
-  entityType: 'entityType',
-  entityId: 'entityId',
-  keyPrefix: 'keyPrefix',
-  blockchainHash: 'blockchainHash',
-  blockchainBlock: 'blockchainBlock',
-  ipfsHash: 'ipfsHash',
-  isOnChain: 'isOnChain',
-  payload: 'payload',
-  status: 'status',
-  processedAt: 'processedAt'
-} as const
-
-export type BlockchainSyncEventScalarFieldEnum = (typeof BlockchainSyncEventScalarFieldEnum)[keyof typeof BlockchainSyncEventScalarFieldEnum]
 
 
 export const ComplaintLocationScalarFieldEnum = {
@@ -372,6 +363,23 @@ export const NewsUpdateScalarFieldEnum = {
 } as const
 
 export type NewsUpdateScalarFieldEnum = (typeof NewsUpdateScalarFieldEnum)[keyof typeof NewsUpdateScalarFieldEnum]
+
+
+export const AnnouncementScalarFieldEnum = {
+  id: 'id',
+  title: 'title',
+  content: 'content',
+  municipality: 'municipality',
+  isActive: 'isActive',
+  priority: 'priority',
+  startsAt: 'startsAt',
+  expiresAt: 'expiresAt',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+  createdById: 'createdById'
+} as const
+
+export type AnnouncementScalarFieldEnum = (typeof AnnouncementScalarFieldEnum)[keyof typeof AnnouncementScalarFieldEnum]
 
 
 export const AuditLogScalarFieldEnum = {
@@ -455,6 +463,23 @@ export const UserBadgeScalarFieldEnum = {
 } as const
 
 export type UserBadgeScalarFieldEnum = (typeof UserBadgeScalarFieldEnum)[keyof typeof UserBadgeScalarFieldEnum]
+
+
+export const BlockchainSyncEventScalarFieldEnum = {
+  id: 'id',
+  entityType: 'entityType',
+  entityId: 'entityId',
+  keyPrefix: 'keyPrefix',
+  blockchainHash: 'blockchainHash',
+  blockchainBlock: 'blockchainBlock',
+  ipfsHash: 'ipfsHash',
+  isOnChain: 'isOnChain',
+  payload: 'payload',
+  status: 'status',
+  processedAt: 'processedAt'
+} as const
+
+export type BlockchainSyncEventScalarFieldEnum = (typeof BlockchainSyncEventScalarFieldEnum)[keyof typeof BlockchainSyncEventScalarFieldEnum]
 
 
 export const CivicPartnerScalarFieldEnum = {
@@ -544,6 +569,14 @@ export const SortOrder = {
 } as const
 
 export type SortOrder = (typeof SortOrder)[keyof typeof SortOrder]
+
+
+export const NullableJsonNullValueInput = {
+  DbNull: 'DbNull',
+  JsonNull: 'JsonNull'
+} as const
+
+export type NullableJsonNullValueInput = (typeof NullableJsonNullValueInput)[keyof typeof NullableJsonNullValueInput]
 
 
 export const JsonNullValueInput = {
