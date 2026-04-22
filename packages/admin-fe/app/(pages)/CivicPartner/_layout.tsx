@@ -2,6 +2,7 @@
 
 import { useState, useEffect, ReactNode, useRef, useCallback } from "react"
 import { usePathname, useRouter } from "next/navigation"
+import { AdminLanguageSelector } from "@/components/AdminLanguageSelector"
 import { cn } from "@/lib/utils"
 import { useCivicPartnerAuth, CivicPartner } from "@/hooks/useCivicPartnerAuth"
 import {
@@ -245,9 +246,9 @@ export function CivicPartnerLayout({ children }: { children: ReactNode }) {
           "border-b border-slate-100 bg-slate-50/40 shrink-0",
           isCollapsed ? "flex flex-col items-center py-4 px-1" : "flex items-center gap-3 p-5"
         )}>
-          <div className="flex h-9 w-9 min-w-[36px] items-center justify-center rounded-xl bg-white shadow-md border border-slate-100">
-            <img src="https://swarajdesk.adityahota.online/logo.png" alt="Logo" className="h-6 w-6 object-contain" />
-          </div>
+          <div className="flex h-14 w-14 min-w-[56px] items-center justify-center rounded-xl bg-white shadow-md border border-slate-100">
+              <img src="https://pub-6c77e16531784985b618e038085ecd96.r2.dev/logo.png" alt="Logo" className="h-12 w-12 object-contain" />
+            </div>
           {!isCollapsed && (
             <div className="flex flex-col">
               <span className="text-[16px] font-black tracking-tight text-slate-900 leading-none">SwarajCivic</span>
@@ -278,6 +279,8 @@ export function CivicPartnerLayout({ children }: { children: ReactNode }) {
                 <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1 w-1.5 h-1.5 bg-slate-800 rotate-45" />
               </div>
             </button>
+
+            <AdminLanguageSelector />
           </div>
         )}
 

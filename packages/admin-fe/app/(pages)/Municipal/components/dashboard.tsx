@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react"
 import 'leaflet/dist/leaflet.css'
 import { MapContainer, Marker, TileLayer } from 'react-leaflet'
 import L from 'leaflet'
+import { BlockchainAuditModal } from "@/components/BlockchainAuditModal"
 
 // ─── Types ────────────────────────────────────────────────────────────
 interface OverviewStats {
@@ -62,6 +63,19 @@ interface Complaint {
   isDuplicate?: boolean | null
 }
 
+interface BlockchainLogEntry {
+  action?: string
+  details?: string
+  timestamp?: string
+  transactionHash?: string
+  blockNumber?: number
+}
+
+interface BlockchainVerificationResponse {
+  databaseLogs?: BlockchainLogEntry[]
+  blockchainVerifiedLogs?: BlockchainLogEntry[]
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002'
 
 // ─── Utilities ────────────────────────────────────────────────────────
@@ -84,7 +98,6 @@ const formatLocation = (loc: Complaint['location'] | null | undefined) => {
 const formatDate = (dateString: string) =>
   new Date(dateString).toLocaleDateString("en-IN", { year: "numeric", month: "short", day: "numeric" })
 
-// ─── Priority / Status / Department badge helpers ─────────────────────
 function PriorityPill({ urgency }: { urgency: string }) {
   const map: Record<string, { bg: string; text: string }> = {
     CRITICAL: { bg: 'bg-[#ffdad6]', text: 'text-[#93000a]' },
@@ -152,7 +165,7 @@ function ComplaintLocationMap({ lat, lng }: { lat: number; lng: number }) {
 // ═══════════════════════════════════════════════════════════════════════
 // ─── Main Component ───────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════
-export function MunicipalDashboard() {
+export function MunicipalDashboard({ onTabChange }: { onTabChange?: (tab: 'dashboard' | 'my-complaints' | 'reports' | 'agent-management' | 'announcements') => void }) {
   // ── State ──
   const [complaints, setComplaints] = useState<Complaint[]>([])
   const [loading, setLoading] = useState(true)
@@ -166,6 +179,9 @@ export function MunicipalDashboard() {
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null)
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null)
   const [statusUpdating, setStatusUpdating] = useState(false)
+  const [blockchainLogs, setBlockchainLogs] = useState<BlockchainVerificationResponse | null>(null)
+  const [blockchainLoading, setBlockchainLoading] = useState(false)
+  const [isBlockchainModalOpen, setIsBlockchainModalOpen] = useState(false)
   const [currentAdminId, setCurrentAdminId] = useState<string | null>(null)
   const [adminType, setAdminType] = useState<string | null>(null)
   const [overviewStats, setOverviewStats] = useState<OverviewStats>({ total: 0, registered: 0, inProgress: 0, resolved: 0, closed: 0, highPriority: 0, assigned: 0 })
@@ -234,6 +250,36 @@ export function MunicipalDashboard() {
     }, 300)
     return () => clearTimeout(debounce)
   }, [searchTerm])
+
+  useEffect(() => {
+    if (selectedComplaint) {
+      fetchBlockchainLogs(selectedComplaint.id)
+    } else {
+      setBlockchainLogs(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedComplaint])
+
+  const fetchBlockchainLogs = async (complaintId: string) => {
+    setBlockchainLoading(true)
+    try {
+      const token = localStorage.getItem("token")
+      const response = await fetch(`/api/complaints/verify/${complaintId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      })
+      if (!response.ok) {
+        setBlockchainLogs(null)
+        return
+      }
+      const data = (await response.json()) as BlockchainVerificationResponse
+      setBlockchainLogs(data)
+    } catch (error) {
+      console.error("Error fetching blockchain logs:", error)
+      setBlockchainLogs(null)
+    } finally {
+      setBlockchainLoading(false)
+    }
+  }
 
   // ── Handlers ──
   const handleAssignToMe = async (complaintId: string) => {
@@ -370,6 +416,23 @@ export function MunicipalDashboard() {
         <div>
           <h2 className="text-3xl font-black text-[#041627] tracking-tight">Complaints Registry</h2>
           <p className="text-[#44474c] text-sm font-medium mt-1">Manage and resolve citizen grievances across departments.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* ── AI Generated Reports Button ── */}
+          <button
+            onClick={() => onTabChange?.('reports')}
+            className="group relative flex items-center gap-3 px-5 py-3 rounded-xl font-black text-sm text-white overflow-hidden shadow-lg shadow-[#115cb9]/25 hover:shadow-[#115cb9]/40 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
+            style={{ background: 'linear-gradient(135deg, #115cb9 0%, #041627 100%)' }}
+          >
+            <span className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 60%)' }} />
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-sky-300 opacity-75 animate-ping" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-sky-200" />
+            </span>
+            <span className="material-symbols-outlined text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>auto_awesome</span>
+            <span className="tracking-tight">AI Generated Reports</span>
+            <span className="material-symbols-outlined text-base opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all">arrow_forward</span>
+          </button>
         </div>
       </div>
 
@@ -739,6 +802,44 @@ export function MunicipalDashboard() {
                     <MetaBlock label="Priority"><PriorityPill urgency={selectedComplaint.urgency} /></MetaBlock>
                   </div>
 
+                  <section className="bg-white p-6 rounded-xl space-y-4">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[#115cb9]" style={{ fontVariationSettings: "'FILL' 1" }}>verified_user</span>
+                      <h3 className="text-sm font-black uppercase tracking-widest text-[#44474c]">Blockchain Verification</h3>
+                    </div>
+
+                    {/* Quick status indicator */}
+                    <div className="p-3 rounded-lg border border-[#e1e3e4] bg-[#f3f4f5] flex items-center gap-3">
+                      <div className="relative">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #006c49, #34d399)' }}>
+                          <span className="material-symbols-outlined text-white" style={{ fontSize: 18, fontVariationSettings: "'FILL' 1" }}>shield_lock</span>
+                        </div>
+                        {blockchainLogs && (blockchainLogs.databaseLogs?.length || blockchainLogs.blockchainVerifiedLogs?.length) && (
+                          <div className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full flex items-center justify-center">
+                            <span className="material-symbols-outlined text-white" style={{ fontSize: 10 }}>check</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-[#041627]">
+                          {blockchainLoading ? 'Syncing with blockchain...' : blockchainLogs?.blockchainVerifiedLogs?.length ? 'On-chain proofs available' : 'Check audit trail'}
+                        </p>
+                        <p className="text-[10px] text-[#44474c] mt-0.5">
+                          Sepolia Testnet · Immutable ledger
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Open Modal Button */}
+                    <button
+                      onClick={() => setIsBlockchainModalOpen(true)}
+                      className="w-full px-4 py-3 rounded-xl font-bold text-xs text-[#115cb9] flex items-center justify-center gap-2 transition-all hover:bg-[#f0f4ff] active:scale-[0.98] border border-[#115cb9]/30 bg-white"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, fontVariationSettings: "'FILL' 1" }}>open_in_new</span>
+                      <span className="uppercase tracking-widest">View Full Audit Trail</span>
+                    </button>
+                  </section>
+
                   {/* Complainant Info */}
                   <section className="bg-white p-6 rounded-xl">
                     <h3 className="text-sm font-black uppercase tracking-widest text-[#44474c] mb-4 flex items-center gap-2">
@@ -821,6 +922,26 @@ export function MunicipalDashboard() {
           </div>
         </div>
       )}
+
+      {/* Blockchain Audit Modal */}
+      <BlockchainAuditModal
+        isOpen={isBlockchainModalOpen}
+        onClose={() => setIsBlockchainModalOpen(false)}
+        complaintId={selectedComplaint?.id || ''}
+        complaintSeq={selectedComplaint?.seq}
+        complaint={selectedComplaint ? {
+          title: selectedComplaint.title || selectedComplaint.subCategory,
+          description: selectedComplaint.description,
+          category: selectedComplaint.category,
+          subCategory: selectedComplaint.subCategory,
+          department: selectedComplaint.department,
+          status: selectedComplaint.status,
+          urgency: selectedComplaint.urgency,
+          submissionDate: selectedComplaint.submissionDate,
+          complainantName: selectedComplaint.complainant?.name,
+          location: selectedComplaint.location,
+        } : undefined}
+      />
     </div>
   )
 }

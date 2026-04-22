@@ -49,18 +49,35 @@ interface SecretValues {
 /**
  * Retrieves secrets from AWS Secrets Manager and injects them into process.env
  * Should be called before any other initialization that depends on env variables
+ * 
+ * DISABLED: AWS Secrets Manager retrieval is disabled to prevent conflicts with local env files.
+ * All configuration should come from env files or Docker ENV variables.
  */
 export async function retrieveAndInjectSecrets(): Promise<void> {
+  // ============================================================================
+  // AWS SECRETS MANAGER DISABLED - Using local env files and Docker ENV instead
+  // ============================================================================
+  // This prevents timing issues where Redis clients are instantiated before
+  // AWS secrets are loaded. Now REDIS_URL is set in Dockerfile and env files.
+  // ============================================================================
+  
+  console.log("[AWS Secrets] DISABLED - Using local env files and Docker ENV variables");
+  console.log("[AWS Secrets] REDIS_URL from env:", process.env.REDIS_URL);
+  
+  // Skip AWS Secrets Manager retrieval entirely
+  return Promise.resolve();
+  
+  /* COMMENTED OUT - Original AWS Secrets Manager code
   try {
     console.log("[AWS Secrets] Retrieving secrets from AWS Secrets Manager...");
-    
+
     // Create client when needed (after bootstrap env is loaded)
     const client = createSecretsClient();
-    
+
     if (!client) {
       throw new Error("AWS Secrets Manager client could not be created - missing credentials");
     }
-    
+
     const command = new GetSecretValueCommand({
       SecretId: SECRET_NAME,
     });
@@ -75,16 +92,16 @@ export async function retrieveAndInjectSecrets(): Promise<void> {
     const secrets: SecretValues = JSON.parse(response.SecretString);
 
     // Inject secrets into process.env
-    // Only override if the value doesn't already exist (local .env takes precedence in dev)
+    // Do not override any environment variable that is already set locally.
+    // This ensures locally-provided secrets (or values supplied via docker-compose/env files)
+    // take precedence over AWS Secrets Manager values, even in production.
     Object.entries(secrets).forEach(([key, value]) => {
       if (value !== undefined) {
-        // In production, always use AWS secrets
-        // In development, use AWS secrets only if local env var is not set
-        if (process.env.NODE_ENV === "production" || !process.env[key]) {
+        if (process.env[key]) {
+          console.log(`[AWS Secrets] Skipped (local override): ${key}`);
+        } else {
           process.env[key] = value;
           console.log(`[AWS Secrets] Injected: ${key}`);
-        } else {
-          console.log(`[AWS Secrets] Skipped (local override): ${key}`);
         }
       }
     });
@@ -92,19 +109,20 @@ export async function retrieveAndInjectSecrets(): Promise<void> {
     console.log("[AWS Secrets] Successfully retrieved and injected secrets");
   } catch (error) {
     console.error("[AWS Secrets] Error retrieving secrets:", error);
-    
+
     // In production, throw error to prevent app from starting without secrets
     if (process.env.NODE_ENV === "production") {
       throw new Error(
         "Failed to retrieve secrets from AWS Secrets Manager in production"
       );
     }
-    
+
     // In development, log warning but continue (use local .env)
     console.warn(
       "[AWS Secrets] Continuing with local .env variables (development mode)"
     );
   }
+  */
 }
 
 /**

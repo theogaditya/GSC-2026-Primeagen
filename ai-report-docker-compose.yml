@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  report-ai:
+    image: mistaholmes/report-ai-model-survey:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      HUGGINGFACEHUB_API_TOKEN: "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"
+      LANGCHAIN_API_KEY: "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"
+      GROQ_API_KEY: "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"
+      GEMINI_API_KEY: "AIzaSyCOEyqqFaBZyxq7702lcP0-lIcCOX7U-R8"
+      LANGCHAIN_TRACING_V2: "true"
+      MODEL_NAME: "gemini-2.5-flash"
+      EMBEDDING_MODEL: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+      VECTOR_DB: "chroma"
+      CHROMA_PERSIST_DIR: "/app/data/embeddings"
+      SURVEY_COLLECTION_NAME: "survey_collection"
+      BACKEND_COLLECTION_NAME: "backend_collection"
+      LLM_TEMPERATURE: "0.3"
+      RETRIEVAL_TOP_K: "20"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

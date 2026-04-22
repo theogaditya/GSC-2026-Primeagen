@@ -2,6 +2,8 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { PrismaClient } from '../prisma/generated/client/client';
 import { authenticateAdmin } from '../middleware/unifiedAuth';
+import { blockchainAuditService } from '../services/blockchainAudit';
+
 
 // Jharkhand district coordinates for geocoding fallback
 const JHARKHAND_DISTRICTS: Record<string, { lat: number; lng: number }> = {
@@ -667,6 +669,99 @@ export default function (prisma: PrismaClient) {
       return res.status(500).json({ success: false, message: 'Failed to fetch most-liked complaints' });
     }
   });
+
+  router.get('/verify/:id', async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id;
+      if (!id) {
+        return res.status(400).json({
+          ok: false,
+          message: 'Complaint id is required',
+        });
+      }
+      console.log(`🛡️ [ComplaintRouter] Verifying Blockchain Audit for: ${id}`);
+
+      const complaintMeta = await prisma.complaint.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          blockchainHash: true,
+          blockchainBlock: true,
+          blockchainStatus: true,
+          isOnChain: true,
+          blockchainUpdatedAt: true,
+        },
+      });
+
+      if (!complaintMeta) {
+        return res.status(404).json({ ok: false, message: 'Complaint not found' });
+      }
+
+      const hintBlock = complaintMeta.blockchainBlock
+        ? Number(complaintMeta.blockchainBlock)
+        : undefined;
+      
+      const [dbLogs, rawChainLogs] = await Promise.all([
+        prisma.auditLog.findMany({
+          where: { complaintId: id },
+          orderBy: { timestamp: 'desc' }
+        }),
+        blockchainAuditService.getOnChainLogs(id, hintBlock, {
+          // When tx hash exists, skip expensive deep scan and fall back to receipt proof if needed.
+          disableFallbackScan: Boolean(complaintMeta.blockchainHash),
+        })
+      ]);
+
+      let chainLogs = rawChainLogs;
+
+      // If indexed log search returns nothing, verify tx hash directly on-chain as a fallback.
+      if (chainLogs.length === 0 && complaintMeta.blockchainHash) {
+        const txProof = await blockchainAuditService.getTransactionProof(complaintMeta.blockchainHash);
+        if (txProof) {
+          chainLogs = [
+            {
+              logId: `tx:${complaintMeta.blockchainHash.slice(0, 12)}`,
+              action: 'ON_CHAIN_CONFIRMATION',
+              userId: 'system',
+              details: `Complaint anchored on-chain via transaction ${complaintMeta.blockchainHash}`,
+              timestamp: txProof.timestamp,
+              transactionHash: txProof.transactionHash,
+              blockNumber: txProof.blockNumber,
+            },
+          ];
+        }
+      }
+
+      return res.json({
+        ok: true,
+        complaintId: id,
+        source: {
+          database: "PostgreSQL (Prisma)",
+          blockchain: "Ethereum Sepolia (On-Chain)"
+        },
+        databaseLogs: dbLogs,
+        blockchainVerifiedLogs: chainLogs,
+        synced: chainLogs.length > 0,
+        chainMeta: {
+          isOnChain: complaintMeta.isOnChain,
+          blockchainStatus: complaintMeta.blockchainStatus,
+          blockchainHash: complaintMeta.blockchainHash,
+          blockchainBlock: complaintMeta.blockchainBlock
+            ? complaintMeta.blockchainBlock.toString()
+            : null,
+          blockchainUpdatedAt: complaintMeta.blockchainUpdatedAt,
+        },
+      });
+    } catch (error: any) {
+      console.error('[BlockchainVerify] Error:', error);
+      return res.status(500).json({ 
+        ok: false, 
+        message: 'Failed to verify blockchain proof',
+        error: error.message 
+      });
+    }
+  });
+
 
   // Get single complaint by ID (placed last to avoid route shadowing)
   router.get('/:id', authenticateAdmin, async (req: Request, res: Response) => {

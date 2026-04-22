@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import dynamic from "next/dynamic"
+import ReportGeneratorPanel from "@/components/ReportGeneratorPanel"
 
 // Dynamically import ComplaintGoogleHeatmap to avoid SSR issues
 const ComplaintGoogleHeatmap = dynamic(() => import("@/components/ComplaintGoogleHeatmap"), {
@@ -69,10 +70,24 @@ export function StateAnalytics() {
     highestLikeCount: 0,
   })
 
+  // Latest persisted report (from ReportGeneratorPanel history)
+  const [latestReport, setLatestReport] = useState<Record<string, any> | null>(null)
+  const [showLatestModal, setShowLatestModal] = useState(false)
 
   useEffect(() => {
     fetchAnalytics()
     fetchMostLiked()
+    // load latest generated report from shared history key used by ReportGeneratorPanel
+    try {
+      const raw = localStorage.getItem("ai_report_history_state_v2")
+      if (raw) {
+        const arr = JSON.parse(raw) as Array<any>
+        if (Array.isArray(arr) && arr.length > 0) {
+          const first = arr[0]
+          setLatestReport(first.report || null)
+        }
+      }
+    } catch { /* ignore */ }
   }, [])
 
   const fetchAnalytics = async () => {
@@ -157,6 +172,73 @@ export function StateAnalytics() {
   return (
     <div className="p-6 md:p-8 flex flex-col gap-8">
 
+      {/* ── Section 0: AI Complaints Report Generator ── */}
+      <ReportGeneratorPanel />
+
+      {/* Most recent generated report (persisted client-side) */}
+      {latestReport && (
+        <div className="bg-white rounded-xl shadow-sm border border-[#c4c6cd]/10 p-4 flex items-center justify-between">
+          <div>
+            <div className="text-xs text-[#44474c] font-bold uppercase tracking-widest">Most Recent Report</div>
+            <div className="text-sm font-black text-[#191c1d] mt-1">{String(latestReport.generated_at || latestReport.timestamp || '')}</div>
+            {latestReport.executive_summary && (
+              <p className="text-xs text-[#44474c] mt-2 line-clamp-2">{String(latestReport.executive_summary)}</p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowLatestModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 h-10 min-w-[48px] rounded-lg bg-[#115cb9] text-white font-bold text-sm shadow-sm hover:bg-[#0e4f8a] transition whitespace-nowrap"
+            >
+              <span className="material-symbols-outlined text-sm">visibility</span>
+              <span>View Report</span>
+            </button>
+            <button
+              onClick={() => { try { localStorage.removeItem('ai_report_history_state_v2'); setLatestReport(null) } catch {} }}
+              className="inline-flex items-center gap-2 px-3 py-2.5 h-10 rounded-md bg-white border text-sm font-semibold hover:shadow-sm transition whitespace-nowrap"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Latest report modal */}
+      {showLatestModal && latestReport && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 backdrop-blur-sm overflow-y-auto p-4 pt-16" onClick={(e) => { if (e.target === e.currentTarget) setShowLatestModal(false) }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl mb-16">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#c4c6cd]/20 sticky top-0 bg-white rounded-t-2xl z-10">
+              <div>
+                <h3 className="font-black text-[#191c1d] text-lg tracking-tight">Most Recent AI Report</h3>
+                <p className="text-xs text-[#74777d] mt-0.5">Loaded from local history</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button onClick={() => { const name = `ai_report_local_${new Date().toISOString().replace(/[:.]/g,'-')}`; const blob=new Blob([JSON.stringify(latestReport,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`${name}.json`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }} className="px-3 py-2 rounded-md text-sm font-bold bg-white border border-[#e7e8e9] hover:shadow-sm">Download</button>
+                <button onClick={() => setShowLatestModal(false)} className="p-2 rounded-lg hover:bg-[#f3f4f5] transition-colors">
+                  <span className="material-symbols-outlined text-[#44474c]">close</span>
+                </button>
+              </div>
+            </div>
+            <div className="p-6">
+              {latestReport.executive_summary && (
+                <div className="bg-[#d2e4fb]/30 rounded-xl p-5 mb-4">
+                  <h4 className="font-black text-[#191c1d] uppercase tracking-wider text-xs">Executive Summary</h4>
+                  <p className="text-sm text-[#44474c] leading-relaxed mt-2">{String(latestReport.executive_summary)}</p>
+                </div>
+              )}
+              <details className="bg-[#0d1117] rounded-xl overflow-hidden">
+                <summary className="px-5 py-3 text-[10px] font-black text-[#58a6ff]/70 uppercase tracking-widest cursor-pointer select-none flex items-center gap-2 hover:text-[#58a6ff]">
+                  <span className="material-symbols-outlined text-sm">data_object</span> View Raw JSON
+                </summary>
+                <pre className="px-5 pb-5 text-[11px] font-mono text-[#79c0ff]/80 whitespace-pre-wrap break-all leading-relaxed overflow-y-auto" style={{ maxHeight: 360 }}>
+                  {JSON.stringify(latestReport, null, 2)}
+                </pre>
+              </details>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Section 1: Executive Summary KPIs ── */}
       <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Citizen Satisfaction */}
@@ -220,6 +302,15 @@ export function StateAnalytics() {
         </div>
       </section>
 
+      {/* ── Section 3: Geospatial Hotspots ── */}
+      <section className="bg-white rounded-xl shadow-sm border border-[#c4c6cd]/10 overflow-hidden">
+        <div className="px-6 py-4 border-b border-[#c4c6cd]/10 flex justify-between items-center bg-[#f3f4f5]/50">
+          <h3 className="font-bold text-base text-[#191c1d]">Geospatial Hotspots: Complaint Location Density</h3>
+          <span className="px-2 py-1 bg-[#ba1a1a]/10 text-[#ba1a1a] text-[10px] font-black rounded uppercase">Live Data</span>
+        </div>
+        <ComplaintGoogleHeatmap height="360px" showDensityTable />
+      </section>
+
       {/* ── Section 2: Departmental Efficiency + Root Causes ── */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Departmental Resolution Efficiency */}
@@ -227,7 +318,7 @@ export function StateAnalytics() {
           <div className="flex justify-between items-center mb-8">
             <div>
               <h3 className="font-bold text-lg text-[#191c1d]">Departmental Resolution Efficiency</h3>
-              <p className="text-xs text-[#44474c]">Performance benchmarks by municipal service sector</p>
+              <p className="text-xs text-[#44474c]">Performance benchmarks by state service sector</p>
             </div>
             <button className="text-xs font-bold text-[#041627] flex items-center gap-1">
               <span className="material-symbols-outlined text-sm">filter_alt</span> Compare All
@@ -272,98 +363,6 @@ export function StateAnalytics() {
               &ldquo;Increase field personnel in Zone 4 (Roads) to mitigate the 45% capacity bottleneck.&rdquo;
             </p>
           </div>
-        </div>
-      </section>
-
-      {/* ── Section 3: Geospatial Hotspots ── */}
-      <section className="bg-white rounded-xl shadow-sm border border-[#c4c6cd]/10 overflow-hidden">
-        <div className="px-6 py-4 border-b border-[#c4c6cd]/10 flex justify-between items-center bg-[#f3f4f5]/50">
-          <h3 className="font-bold text-base text-[#191c1d]">Geospatial Hotspots: Complaint Location Density</h3>
-          <span className="px-2 py-1 bg-[#ba1a1a]/10 text-[#ba1a1a] text-[10px] font-black rounded uppercase">Live Data</span>
-        </div>
-        <ComplaintGoogleHeatmap height="360px" showDensityTable />
-      </section>
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Intelligence Hub */}
-        <div className="lg:col-span-4 bg-white p-6 rounded-xl shadow-sm border border-[#c4c6cd]/10">
-          <h3 className="font-bold text-lg text-[#191c1d] mb-6">Intelligence Hub</h3>
-          <div className="space-y-4">
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-widest text-[#44474c] mb-2 block">Financial Year</label>
-              <select className="w-full bg-[#f3f4f5] border-none rounded-lg py-2.5 px-4 text-sm font-medium focus:ring-2 focus:ring-[#d2e4fb]/40">
-                <option>FY 2025-26 (Current)</option>
-                <option>FY 2024-25</option>
-                <option>FY 2023-24</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-widest text-[#44474c] mb-2 block">Department Segment</label>
-              <select className="w-full bg-[#f3f4f5] border-none rounded-lg py-2.5 px-4 text-sm font-medium focus:ring-2 focus:ring-[#d2e4fb]/40">
-                <option>All Departments</option>
-                <option>Water &amp; Sanitation</option>
-                <option>Public Works (PWD)</option>
-                <option>Healthcare Services</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-widest text-[#44474c] mb-2 block">SLA Compliance Status</label>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="flex items-center gap-2 bg-[#f3f4f5] p-2.5 rounded-lg cursor-pointer">
-                  <input defaultChecked type="checkbox" className="rounded text-[#041627] focus:ring-[#041627] border-none" />
-                  <span className="text-xs font-bold text-[#191c1d]">Compliant</span>
-                </label>
-                <label className="flex items-center gap-2 bg-[#f3f4f5] p-2.5 rounded-lg cursor-pointer">
-                  <input defaultChecked type="checkbox" className="rounded text-[#ba1a1a] focus:ring-[#ba1a1a] border-none" />
-                  <span className="text-xs font-bold text-[#191c1d]">Breached</span>
-                </label>
-              </div>
-            </div>
-            <button
-              onClick={() => { fetchAnalytics(); fetchMostLiked() }}
-              className="w-full bg-[#041627] text-white py-3 rounded-lg font-bold text-sm mt-2 hover:bg-[#1a2b3c] transition-colors shadow-lg shadow-[#041627]/10 active:scale-[0.98]"
-            >
-              Apply Intelligence Filters
-            </button>
-          </div>
-        </div>
-
-        {/* Export Protocol */}
-        <div className="lg:col-span-8 bg-[#f3f4f5] p-8 rounded-xl relative overflow-hidden">
-          <div className="relative z-10 h-full flex flex-col justify-between">
-            <div>
-              <h2 className="font-black text-2xl tracking-tighter text-[#041627] mb-2">Export Protocol</h2>
-              <p className="text-sm text-[#44474c] max-w-lg mb-8">
-                Securely retrieve administrative governance data in structured formats for ministerial auditing or archiving.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <button className="bg-white p-6 rounded-xl flex items-center justify-between group hover:shadow-md transition-all border border-transparent hover:border-[#c4c6cd]/20">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 bg-[#115cb9]/5 text-[#115cb9] rounded-lg">
-                    <span className="material-symbols-outlined">table_view</span>
-                  </div>
-                  <div className="text-left">
-                    <p className="text-sm font-bold text-[#041627]">Download CSV</p>
-                    <p className="text-[10px] text-[#44474c]">Compatible with Excel/Sheets</p>
-                  </div>
-                </div>
-                <span className="material-symbols-outlined text-[#74777d] group-hover:text-[#041627] transition-colors">download</span>
-              </button>
-              <button className="bg-white p-6 rounded-xl flex items-center justify-between group hover:shadow-md transition-all border border-transparent hover:border-[#c4c6cd]/20">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 bg-[#041627]/5 text-[#041627] rounded-lg">
-                    <span className="material-symbols-outlined">data_object</span>
-                  </div>
-                  <div className="text-left">
-                    <p className="text-sm font-bold text-[#041627]">Download JSON</p>
-                    <p className="text-[10px] text-[#44474c]">Optimized for API ingest</p>
-                  </div>
-                </div>
-                <span className="material-symbols-outlined text-[#74777d] group-hover:text-[#041627] transition-colors">download</span>
-              </button>
-            </div>
-          </div>
-          <div className="absolute -right-20 -bottom-20 w-64 h-64 bg-[#041627]/5 rounded-full blur-3xl" />
         </div>
       </section>
 

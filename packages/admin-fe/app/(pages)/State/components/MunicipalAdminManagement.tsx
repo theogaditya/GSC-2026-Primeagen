@@ -43,7 +43,7 @@ export function MunicipalAdminManagement() {
     try {
       const token = localStorage.getItem("token")
       if (!token) return
-      const res = await fetch(`${API_URL}/api/state-admin/all`, {
+      const res = await fetch(`${API_URL}/api/municipal-admin/all`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (res.ok) {
@@ -212,7 +212,7 @@ export function MunicipalAdminManagement() {
                       const displayName = municipalAdmin.name || municipalAdmin.fullName
                       return (
                         <tr key={municipalAdmin.id} className="hover:bg-[#f3f4f5] transition-colors group">
-                          {/* Administrator — avatar + name + email */}
+                          {/* Administrator -avatar + name + email */}
                           <td className="px-6 py-5">
                             <div className="flex items-center gap-3">
                               <div

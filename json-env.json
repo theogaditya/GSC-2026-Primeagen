@@ -1,0 +1,80 @@
+{
+    "packages/self/.env.production": {
+        "NODE_ENV": "production",
+        "PORT": "3030",
+        "OPEN_API_KEY": "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"
+    },
+    "packages/user-be/.env.production": {
+        "NODE_ENV": "production",
+        "PORT": "3000",
+        "WS_PORT": "3001",
+        "frontend": "https://iit-bbsr-swaraj-user-fe.adityahota.online",
+        "backend": "https://iit-bbsr-swaraj-user-be.adityahota.online",
+        "worker": "https://iit-bbsr-swaraj-ws-user-be.adityahota.online",
+        "frontend_admin": "https://iit-bbsr-swaraj-admin-fe.adityahota.online",
+        "backend_admin": "https://iit-bbsr-swaraj-admin-be.adityahota.online",
+        "PRISMA_CLIENT_ENGINE_TYPE": "binary",
+        "DATABASE_URL": "postgresql://postgres:Big2026@67boi@db.dyjwgpqzafmacotebrot.supabase.co:5432/postgres",
+        "JWT_SECRET": "Big2026",
+        "REDIS_URL": "redis://default:X95Voc7K22sc6e3G0sIBcJczdeuadzxi@redis-11469.c305.ap-south-1-1.ec2.cloud.redislabs.com:11469",
+        "AWS_REGION": "ap-south-2",
+        "S3_AWS_ACCESS_KEY_ID": "AKIAZ53VJYCLAN563LY2",
+        "S3_AWS_SECRET_ACCESS_KEY": "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",
+        "AWS_BUCKET": "sih-swaraj",
+        "SECRETS_AWS_ACCESS_KEY_ID": "AKIAZ53VJYCLAGVGCIWC",
+        "SECRETS_AWS_SECRET_ACCESS_KEY": "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",
+        "SECRET_NAME_AWS_USER_BE": "sih-swaraj-user-be-prod",
+        "pinAPIBase": "https://api.postalpincode.in/pincode"
+    },
+    "packages/compQueue/.env.production": {
+        "NODE_ENV": "production",
+        "COMP_QUEUE_PORT": "3005",
+        "DATABASE_URL": "postgresql://postgres:Big2026@67boi@db.dyjwgpqzafmacotebrot.supabase.co:5432/postgres",
+        "JWT_SECRET": "Big2026",
+        "REDIS_URL": "redis://default:X95Voc7K22sc6e3G0sIBcJczdeuadzxi@redis-11469.c305.ap-south-1-1.ec2.cloud.redislabs.com:11469",
+        "AWS_REGION": "ap-south-2",
+        "SECRETS_AWS_ACCESS_KEY_ID": "AKIAZ53VJYCLAGVGCIWC",
+        "SECRETS_AWS_SECRET_ACCESS_KEY": "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",
+        "SECRET_NAME_AWS_USER_BE": "sih-swaraj-comp-queue-prod",
+        "CLIENT_EMAIL": "sub-cat-jun8-swaraj-ai@orbital-builder-454706-h5.iam.gserviceaccount.com",
+        "PRIVATE_KEY": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDX5+k+98mgpaOu\ncHvYf4mmxMVTUW/JugYNVKWwFBsaY9cxd9IqWp0Eh2Mnbfg0p5k2cgMjGVA/WElu\nmG96Cyt2ygafjfziIgD6bBK9CUjPTBTAiJyCG+NOMF/PQ9YSBVvftQFq688e5bBK\nDkSDfc+/8Pb6FZCmwEJD0iriIA69BUcUahjl7Na50FHN0MM8zRBME62rMfmUMMiu\noDoJ/NnsqkTAroXHJdXDuI1qath/rhTx/QlUDAvCbs5cGSMcTa9VhDAjqfbkCA8R\nehKhF86rPyt+tluYRK+IeC71ebb1l1Nywp3qwSjB+w+cJXcPkiGuTgz97eVFmP20\nuvAjQqKRAgMBAAECggEAEo9gHXnSZM0roSvdEAM4UEeRqWDsM2Y0OpWKDMHqg1en\nDYL9/ezkmwAPrDl0ep1+h6lzaMmc4v6+76y9xu49rt+DhD6bfGdtHoBURNkO395S\nP/hxo9Z4sT8DukVcALHI1q+wghvojGc1KWVil5i+ipyEG4Maq6SfzauI5JlzsUuI\nOaLC6PQLX2kHtQFVOxS5VXRvlzzL+XEKW7riCW8hHtuEloDO3rKRKkUk4Rrzg8RN\nieBYMuel24OYl0rb8a6PKjj8imfWW6Kglw9igZNqZZUvmWzZ7z5lR0l1tEMsCDt/\nyBIDPDqQ9kiRpgbSLfdHoKp3+UPOhv8P5ybq2CU+NQKBgQDusQWRSs82JF31rd9m\nz2ZX0SpHnv8bwTTQ3Ng4FoWgXnYRWjY3clyc6ZpnAnRtwHbIMw0wlrGxkBy9K5VN\nfqUs+Qfmx5tVziHVT3yjTSHzflz1tMbFyTwf4dA6VrwMZ0kET+5lEHbHYdsYGI9k\nbIJL7IAqMJIx8+826CXwnw5DhwKBgQDnj+gGyY64xgfzwavPFLtNULoAqumEROt9\n0swZRk3uVay99H0GHPTsZuwfc5gE2x/dukxZmvY476qt9B0jaW8SJwqInx5YFAvJ\nAg1uaXBax7LVzQFc99CChi/8NkxOqGQ/NxrGy94pLEo/UYtk5KENcRSIx4ifcYIO\ntj4nPw8fJwKBgQDkPvjQ99Vvs5T50ntXZ6o4/XXNqRfPpZBozVYhREAhm1KRw08m\n9D/leGjCahGFxc6QIGlTdjaTUfh5WIzb3uf6OmS45VT/1y55ORo5Wg/GNKaV+nk9\nNvI8loW0063cuoOTERApKnY6sLN+tjWgVTa/fXcNYQbbp6SvP4zQLHjKTwKBgAkZ\nJ2W036204jUao/SD/QQBqv1BueEfkB0mfix0DbXSmfHwvETUOG9db+OgeBWgwnTE\n0CEpLIl6KTuifs6YYuvUqt5JWjjduMTSFtMCw45dkFJENsx/VCr8uL/xJjhk92Ng\nd+XdtsHpYpVwT8jMDuPnUIY7SMvy+sg3MuP53087AoGBAM5UOwdmNbgcRPIezml5\n1NuSTTs0TKQVCew1P+lfIjPTUL+jTdCX/X13sKwc3syngU+0pjdGxfAbCdEUOF9H\nJT9wkB7lwa/FrR0U9ymlofPmWrE711ppc3enF1bsUJUb6AnqB49OquOR4yBm7X3p\nXzxzQX2xnkngTjIVS8R+EXYs\n-----END PRIVATE KEY-----\n",
+        "GCP_PROJECT_ID": "orbital-builder-454706-h5",
+        "GCP_LOCATION": "us-central1",
+        "ENDPOINT_ID": "6180008513566146560",
+        "DEFAULT_MODERATION_URL": "https://toxic-ani.adityahota.online/moderation/moderate_text_api_v1_moderate_post"
+    },
+    "packages/user-fe/.env.prod": {
+        "NEXT_PUBLIC_GOOGLE_API_KEY": "AIzaSyAt9AyMCdhAuJyWPjflwc57R3b0qYR5jXg",
+        "NEXT_PUBLIC_CHATBOT_LINK": "https://voice-ani.adityahota.online/chat_swaraj",
+        "IMAGE_VALIDATION_URL": "https://vision-ani.adityahota.online/predict",
+        "NEXT_PUBLIC_IMAGE_ANALYSIS_API_URL": "https://iit-bbsr-swaraj-self.adityahota.online/api/image",
+        "NEXT_PUBLIC_WS_URL": "iit-bbsr-swaraj-ws-user-be.adityahota.online",
+        "NEXT_PUBLIC_USER_BE_URL": "https://iit-bbsr-swaraj-user-be.adityahota.online",
+        "NEXT_PUBLIC_PIN_API_BASE": "https://api.postalpincode.in/pincode"
+    },
+    "packages/admin-fe/.env.prod": {
+        "NEXT_PUBLIC_API_URL": "https://iit-bbsr-swaraj-admin-be.adityahota.online"
+    },
+    "packages/admin-be/.env.production": {
+        "NODE_ENV": "production",
+        "ADMIN_BE_PORT": "3002",
+        "ADMIN_BE_URL": "https://iit-bbsr-swaraj-admin-be.adityahota.online",
+        "DATABASE_URL": "postgresql://postgres:Big2026@67boi@db.dyjwgpqzafmacotebrot.supabase.co:5432/postgres",
+        "JWT_SECRET": "Big2026",
+        "REDIS_URL": "redis://default:X95Voc7K22sc6e3G0sIBcJczdeuadzxi@redis-11469.c305.ap-south-1-1.ec2.cloud.redislabs.com:11469",
+        "AWS_REGION": "ap-south-2",
+        "ALLOWED_ORIGINS": "https://iit-bbsr-swaraj-admin-fe.adityahota.online,https://iit-bbsr-swaraj-user-be.adityahota.online,https://iit-bbsr-swaraj-user-fe.adityahota.online",
+        "DEFAULT_MODERATION_URL": "https://toxic-ani.adityahota.online/moderation/moderate_text_api_v1_moderate_post",
+        "CLIENT_EMAIL": "sub-cat-jun8-swaraj-ai@orbital-builder-454706-h5.iam.gserviceaccount.com",
+        "PRIVATE_KEY": "-----BEGIN PRIVATE KEY-----\\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDX5+k+98mgpaOu\\ncHvYf4mmxMVTUW/JugYNVKWwFBsaY9cxd9IqWp0Eh2Mnbfg0p5k2cgMjGVA/WElu\\nmG96Cyt2ygafjfziIgD6bBK9CUjPTBTAiJyCG+NOMF/PQ9YSBVvftQFq688e5bBK\\nDkSDfc+/8Pb6FZCmwEJD0iriIA69BUcUahjl7Na50FHN0MM8zRBME62rMfmUMMiu\\noDoJ/NnsqkTAroXHJdXDuI1qath/rhTx/QlUDAvCbs5cGSMcTa9VhDAjqfbkCA8R\\nehKhF86rPyt+tluYRK+IeC71ebb1l1Nywp3qwSjB+w+cJXcPkiGuTgz97eVFmP20\\nuvAjQqKRAgMBAAECggEAEo9gHXnSZM0roSvdEAM4UEeRqWDsM2Y0OpWKDMHqg1en\\nDYL9/ezkmwAPrDl0ep1+h6lzaMmc4v6+76y9xu49rt+DhD6bfGdtHoBURNkO395S\\nP/hxo9Z4sT8DukVcALHI1q+wghvojGc1KWVil5i+ipyEG4Maq6SfzauI5JlzsUuI\\nOaLC6PQLX2kHtQFVOxS5VXRvlzzL+XEKW7riCW8hHtuEloDO3rKRKkUk4Rrzg8RN\\nieBYMuel24OYl0rb8a6PKjj8imfWW6Kglw9igZNqZZUvmWzZ7z5lR0l1tEMsCDt/\\nyBIDPDqQ9kiRpgbSLfdHoKp3+UPOhv8P5ybq2CU+NQKBgQDusQWRSs82JF31rd9m\\nz2ZX0SpHnv8bwTTQ3Ng4FoWgXnYRWjY3clyc6ZpnAnRtwHbIMw0wlrGxkBy9K5VN\\nfqUs+Qfmx5tVziHVT3yjTSHzflz1tMbFyTwf4dA6VrwMZ0kET+5lEHbHYdsYGI9k\\nbIJL7IAqMJIx8+826CXwnw5DhwKBgQDnj+gGyY64xgfzwavPFLtNULoAqumEROt9\n0swZRk3uVay99H0GHPTsZuwfc5gE2x/dukxZmvY476qt9B0jaW8SJwqInx5YFAvJ\\nAg1uaXBax7LVzQFc99CChi/8NkxOqGQ/NxrGy94pLEo/UYtk5KENcRSIx4ifcYIO\\ntj4nPw8fJwKBgQDkPvjQ99Vvs5T50ntXZ6o4/XXNqRfPpZBozVYhREAhm1KRw08m\\n9D/leGjCahGFxc6QIGlTdjaTUfh5WIzb3uf6OmS45VT/1y55ORo5Wg/GNKaV+nk9\\nNvI8loW0063cuoOTERApKnY6sLN+tjWgVTa/fXcNYQbbp6SvP4zQLHjKTwKBgAkZ\\nJ2W036204jUao/SD/QQBqv1BueEfkB0mfix0DbXSmfHwvETUOG9db+OgeBWgwnTE\\n0CEpLIl6KTuifs6YYuvUqt5JWjjduMTSFtMCw45dkFJENsx/VCr8uL/xJjhk92Ng\\nd+XdtsHpYpVwT8jMDuPnUIY7SMvy+sg3MuP53087AoGBAM5UOwdmNbgcRPIezml5\\n1NuSTTs0TKQVCew1P+lfIjPTUL+jTdCX/X13sKwc3syngU+0pjdGxfAbCdEUOF9H\\nJT9wkB7lwa/FrR0U9ymlofPmWrE711ppc3enF1bsUJUb6AnqB49OquOR4yBm7X3p\\nXzxzQX2xnkngTjIVS8R+EXYs\\n-----END PRIVATE KEY-----\\n",
+        "GCP_PROJECT_ID": "orbital-builder-454706-h5",
+        "GCP_LOCATION": "us-central1",
+        "ENDPOINT_ID": "6180008513566146560",
+        "SECRETS_AWS_ACCESS_KEY_ID": "AKIAZ53VJYCLAGVGCIWC",
+        "SECRETS_AWS_SECRET_ACCESS_KEY": "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",
+        "SECRET_NAME_AWS_USER_BE": "sih-swaraj-admin-be-prod",
+        "S3_AWS_ACCESS_KEY_ID": "AKIAZ53VJYCLAN563LY2",
+        "S3_AWS_SECRET_ACCESS_KEY": "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",
+        "AWS_BUCKET": "sih-swaraj"
+    }
+}

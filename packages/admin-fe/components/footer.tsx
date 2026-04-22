@@ -56,7 +56,7 @@ const defaultLegalLinks = [{ name: "Terms and Conditions", href: "/tc" }];
 export const Footer7 = ({
   logo = {
     url: "#",
-    src: "https://swarajdesk.adityahota.online/logo.png",
+    src: "https://pub-6c77e16531784985b618e038085ecd96.r2.dev/logo.png",
     alt: "SwarajDesk Logo",
     title: "SwarajDesk.co.in",
   },
@@ -74,7 +74,7 @@ export const Footer7 = ({
           {/* Logo + Description + Social */}
           <div className="flex flex-col items-center lg:items-start max-w-sm text-center lg:text-left">
             <a href={logo.url} aria-label="Homepage" className="inline-flex items-center gap-3 mb-3">
-              <img src={logo.src} alt={logo.alt} title={logo.title} className="h-20 w-auto" />
+              <img src={logo.src} alt={logo.alt} title={logo.title} className="h-12 w-auto object-contain" />
               <span className="text-2xl font-semibold text-gray-900">{logo.title}</span>
             </a>
             <p className="mb-4 text-gray-600">{description}</p>

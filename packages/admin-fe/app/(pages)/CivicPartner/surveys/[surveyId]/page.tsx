@@ -129,18 +129,28 @@ export default function SurveyDetailPage({ params }: { params: Promise<{ surveyI
     script.async = true; script.defer = true
     script.onload = () => {
       if (!mapRef.current) return
-      const map = new google.maps.Map(mapRef.current, {
+      const g = (globalThis as any).google
+      if (!g || !g.maps) {
+        console.warn('[Survey] google maps not available after script load')
+        return
+      }
+      const map = new g.maps.Map(mapRef.current, {
         center: { lat: 19.076, lng: 72.8777 }, zoom: 12,
         styles: [
           { featureType: "all",   elementType: "labels.text.fill", stylers: [{ color: "#7c93a3" }] },
           { featureType: "water", elementType: "all",               stylers: [{ color: "#465FFF" }, { opacity: 0.1 }] },
         ],
+        mapTypeControl: true,
+        streetViewControl: true,
+        rotateControl: true,
+        zoomControl: true,
+        fullscreenControl: true,
       })
       const pts = [
-        new google.maps.LatLng(19.076, 72.878), new google.maps.LatLng(19.08, 72.88),
-        new google.maps.LatLng(19.1,   72.85),  new google.maps.LatLng(19.05, 72.9),
+        new g.maps.LatLng(19.076, 72.878), new g.maps.LatLng(19.08, 72.88),
+        new g.maps.LatLng(19.1,   72.85),  new g.maps.LatLng(19.05, 72.9),
       ]
-      new google.maps.visualization.HeatmapLayer({ data: pts, map, radius: 40 })
+      new g.maps.visualization.HeatmapLayer({ data: pts, map, radius: 40 })
     }
     document.head.appendChild(script)
     return () => { try { document.head.removeChild(script) } catch {} }
@@ -636,7 +646,7 @@ export default function SurveyDetailPage({ params }: { params: Promise<{ surveyI
                     <div className="p-8 border-b border-gray-50 flex justify-between items-center">
                       <div>
                         <h3 className="text-lg font-black text-black">Citizen Interaction Heatmap</h3>
-                        <p className="text-xs text-emerald-500 font-black uppercase tracking-widest mt-1">Live — Google Maps API</p>
+                        <p className="text-xs text-emerald-500 font-black uppercase tracking-widest mt-1">Live -Google Maps API</p>
                       </div>
                       <div className="flex items-center gap-2 text-gray-300">
                         <span className="material-symbols-outlined text-sm">info</span>
@@ -685,7 +695,7 @@ export default function SurveyDetailPage({ params }: { params: Promise<{ surveyI
                   <p className="text-[10px] text-gray-400 mt-0.5">
                     {isDraft      && "Not yet visible to citizens."}
                     {isPublished  && "Visible and accepting responses."}
-                    {isClosed     && "Closed — no new responses."}
+                    {isClosed     && "Closed -no new responses."}
                     {survey.status === "ARCHIVED" && "Archived and removed from all views."}
                   </p>
                 </div>

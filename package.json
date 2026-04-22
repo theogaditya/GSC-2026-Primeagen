@@ -1,0 +1,36 @@
+{
+  "name": "sih",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "bun run test:admin-be && bun run test:compQueue && bun run test:user-be",
+    "test:admin-be": "cd packages/admin-be && bun run test:unit",
+    "test:compQueue": "cd packages/compQueue && bun run test:unit",
+    "test:user-be": "cd packages/user-be && bun run test:unit",
+    "test:coverage": "bun run test:coverage:admin-be && bun run test:coverage:compQueue && bun run test:coverage:user-be",
+    "test:coverage:admin-be": "cd packages/admin-be && bun run test:coverage",
+    "test:coverage:compQueue": "cd packages/compQueue && bun run test:coverage",
+    "test:coverage:user-be": "cd packages/user-be && bun run test:coverage"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "baseline-browser-mapping": "^2.8.32"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.1002.0",
+    "@prisma/adapter-pg": "^7.7.0",
+    "@prisma/client": "^7.7.0",
+    "@react-google-maps/api": "^2.20.8",
+    "@redis/client": "^5.10.0",
+    "chai": "^6.2.2",
+    "jest-mock-extended": "2.0.4",
+    "prisma": "^7.7.0"
+  }
+}

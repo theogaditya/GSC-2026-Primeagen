@@ -1,0 +1,12 @@
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.retry
+inventory.ini
+.key/
+.terraform.tfstate.lock.info
+vars.yml
+.key
+deploy.yml
+autoAnsi/deploy-staged.yml

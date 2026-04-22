@@ -5,8 +5,10 @@ import dynamic from "next/dynamic"
 import { AgentRevampedLayout } from "./_layout"
 import { AuthGuard } from "@/components/auth-guard"
 import { ChatModal } from "@/components/chat-modal"
+import { UavIntelligence } from "@/components/UavIntelligence"
+import { BlockchainAuditModal } from "@/components/BlockchainAuditModal"
 
-// Complaint heatmap — loaded client-side only
+// Complaint heatmap -loaded client-side only
 const ComplaintGoogleHeatmap = dynamic(() => import("@/components/ComplaintGoogleHeatmap"), {
   ssr: false,
   loading: () => (
@@ -22,7 +24,11 @@ const MapContainer = dynamic(() => import("react-leaflet").then((m) => m.MapCont
 const TileLayer = dynamic(() => import("react-leaflet").then((m) => m.TileLayer), { ssr: false })
 const Marker = dynamic(() => import("react-leaflet").then((m) => m.Marker), { ssr: false })
 
-const AI_API_URL = process.env.NEXT_PUBLIC_API_URL_SELF_MATCH || "http://localhost:3030/api/match"
+const AI_API_URL = process.env.NEXT_PUBLIC_API_URL_SELF_MATCH || "http://localhost:3040/api/match"
+
+/** Route external image URLs through our server proxy to avoid CORP blocks */
+const proxyImg = (url: string | null | undefined) =>
+  url ? `/api/img-proxy?url=${encodeURIComponent(url)}` : ""
 
 interface Complaint {
   id: string
@@ -124,7 +130,9 @@ export default function AgentRevampedDashboard() {
   const [compareResult, setCompareResult] = useState<{ match: boolean; confidence: number; reason: string } | null>(null)
   const [compareError, setCompareError] = useState<string | null>(null)
   const [chatComplaint, setChatComplaint] = useState<Complaint | null>(null)
+  const [slideoverImgError, setSlideoverImgError] = useState(false)
   const [workloadData, setWorkloadData] = useState<{ currentWorkload: number; workloadLimit: number; availabilityStatus?: string } | null>(null)
+  const [isBlockchainModalOpen, setIsBlockchainModalOpen] = useState(false)
 
   useEffect(() => {
     try {
@@ -145,24 +153,29 @@ export default function AgentRevampedDashboard() {
     } catch {}
   }, [])
 
-  // Fetch agent workload data from /api/agent/me (live data, overrides localStorage fallback)
+  useEffect(() => {
+    setSlideoverImgError(false)
+  }, [selectedComplaint?.attachmentUrl])
+
+  // Fetch agent workload -/api/agent/workload returns the data directly (no .agent wrapper)
   useEffect(() => {
     const fetchWorkloadData = async () => {
       try {
         const token = localStorage.getItem("token")
         if (!token) return
-        const res = await fetch(`${API_URL}/api/agent/me`, {
+        const res = await fetch(`${API_URL}/api/agent/workload`, {
           headers: { Authorization: `Bearer ${token}` },
         })
+        if (!res.ok) return   // silently fall back to localStorage on 403/404
         const data = await res.json()
-        if (data.agent) {
+        if (data.success) {
           const wl = {
-            currentWorkload: data.agent.currentWorkload ?? 0,
-            workloadLimit: data.agent.workloadLimit ?? 10,
-            availabilityStatus: data.agent.availabilityStatus,
+            currentWorkload: data.currentWorkload ?? 0,
+            workloadLimit: data.workloadLimit ?? 10,
+            availabilityStatus: data.availabilityStatus,
           }
           setWorkloadData(wl)
-          // Also update localStorage so fallback stays fresh
+          // Keep localStorage in sync as a fallback
           try {
             const raw = localStorage.getItem("admin")
             if (raw) {
@@ -174,24 +187,8 @@ export default function AgentRevampedDashboard() {
             }
           } catch {}
         }
-      } catch (e) {
-        console.error("Error fetching workload data", e)
-        // Fallback: if API fails, try localStorage
-        if (!workloadData) {
-          try {
-            const raw = localStorage.getItem("admin")
-            if (raw) {
-              const obj = JSON.parse(raw)
-              if (obj?.workloadLimit !== undefined) {
-                setWorkloadData({
-                  currentWorkload: obj.currentWorkload ?? 0,
-                  workloadLimit: obj.workloadLimit ?? 10,
-                  availabilityStatus: obj.availabilityStatus,
-                })
-              }
-            }
-          } catch {}
-        }
+      } catch {
+        // Network error -workload data from localStorage is already set above
       }
     }
     fetchWorkloadData()
@@ -555,17 +552,8 @@ export default function AgentRevampedDashboard() {
                 ))}
           </div>
 
-          {/* Complaint Heatmap */}
-          <div className="bg-white border border-[#c3c5d9]/40 shadow-sm overflow-hidden">
-            <div className="px-5 py-3 border-b border-[#c3c5d9]/20 flex items-center justify-between bg-[#f8fafc]">
-              <div>
-                <h3 className="text-xs font-black uppercase tracking-widest text-[#0b1c30]">Complaint Location Heatmap</h3>
-                <p className="text-[10px] text-slate-400 font-mono mt-0.5">Real-time density visualisation from registered complaints</p>
-              </div>
-              <span className="material-symbols-outlined text-slate-300" style={{ fontSize: 20 }}>map</span>
-            </div>
-            <ComplaintGoogleHeatmap height="320px" showDensityTable />
-          </div>
+          {/* UAV Intelligence Verification */}
+          <UavIntelligence complaints={complaints} />
 
           {/* Filters */}
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
@@ -766,13 +754,24 @@ export default function AgentRevampedDashboard() {
                 {/* Image comparison (if attachment exists) */}
                 {selectedComplaint.attachmentUrl && (
                   <div className="mb-5">
-                    <div className="aspect-video relative bg-black overflow-hidden rounded-sm">
-                      <img
-                        src={selectedComplaint.attachmentUrl}
-                        alt="Complaint attachment"
-                        className="w-full h-full object-cover opacity-80"
-                        onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
-                      />
+                    <div className="aspect-video relative bg-black/5 overflow-hidden rounded-sm min-h-[220px] flex items-center justify-center">
+                      {selectedComplaint.attachmentUrl && !slideoverImgError ? (
+                        <img
+                          src={proxyImg(selectedComplaint.attachmentUrl)}
+                          alt="Complaint attachment"
+                          className="w-full h-full object-cover opacity-80"
+                          onError={() => setSlideoverImgError(true)}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <div className="text-center">
+                            <div className="w-32 h-20 rounded bg-slate-100 flex items-center justify-center mx-auto">
+                              <span className="material-symbols-outlined text-slate-500" style={{ fontSize: 28 }}>image_not_supported</span>
+                            </div>
+                            <p className="text-xs mt-2 font-medium text-slate-700">{selectedComplaint.attachmentUrl ? selectedComplaint.attachmentUrl.split('/').pop() : 'No image'}</p>
+                          </div>
+                        </div>
+                      )}
                       <div className="absolute bottom-2 left-2 bg-black/70 px-2 py-1 text-[9px] font-mono text-white">
                         CITIZEN_UPLOAD // #{selectedComplaint.seq}
                       </div>
@@ -863,6 +862,19 @@ export default function AgentRevampedDashboard() {
                   )}
                 </div>
 
+                {/* Blockchain Audit Trail */}
+                <div className="mt-5 pt-4 border-t border-[#c3c5d9]/20">
+                  <p className="text-[9px] font-bold uppercase text-slate-400 tracking-widest mb-3">Blockchain Verification</p>
+                  <button
+                    onClick={() => setIsBlockchainModalOpen(true)}
+                    className="w-full group relative overflow-hidden py-3 font-bold text-[10px] text-white flex items-center justify-center gap-2 transition-all hover:brightness-110 active:scale-95 uppercase tracking-widest"
+                    style={{ background: 'linear-gradient(135deg, #041627 0%, #0047cc 100%)' }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 14, fontVariationSettings: "'FILL' 1" }}>verified_user</span>
+                    View On-Chain Audit Trail
+                  </button>
+                </div>
+
                 {/* Status update */}
                 {canUpdateStatus(selectedComplaint) && (
                   <div className="mt-6 pt-4 border-t border-[#c3c5d9]/20">
@@ -937,6 +949,26 @@ export default function AgentRevampedDashboard() {
           onClose={() => setChatComplaint(null)}
           complaintId={chatComplaint?.id || ""}
           complaintTitle={chatComplaint?.title || chatComplaint?.subCategory || `Complaint #${chatComplaint?.seq}`}
+        />
+
+        {/* Blockchain Audit Modal */}
+        <BlockchainAuditModal
+          isOpen={isBlockchainModalOpen}
+          onClose={() => setIsBlockchainModalOpen(false)}
+          complaintId={selectedComplaint?.id || ''}
+          complaintSeq={selectedComplaint?.seq}
+          complaint={selectedComplaint ? {
+            title: selectedComplaint.title || selectedComplaint.subCategory,
+            description: selectedComplaint.description,
+            category: selectedComplaint.category,
+            subCategory: selectedComplaint.subCategory,
+            department: selectedComplaint.department,
+            status: selectedComplaint.status,
+            urgency: selectedComplaint.urgency,
+            submissionDate: selectedComplaint.submissionDate,
+            complainantName: selectedComplaint.complainant?.name,
+            location: selectedComplaint.location,
+          } : undefined}
         />
       </AgentRevampedLayout>
     </AuthGuard>
