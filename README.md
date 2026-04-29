@@ -748,4 +748,4 @@ Four role-scoped dashboards are served under `app/(pages)/`.
 
 **SwarajDesk** — Built for India's citizens, powered by AI, secured by blockchain.
 
-*© 2025 SwarajDesk Team — IIT Bhubaneswar*
+*© 2025 SwarajDesk Team *
